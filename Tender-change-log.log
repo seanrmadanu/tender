@@ -1,0 +1,324 @@
+TENDER — CHANGE LOG SINCE THE ORIGINAL CHATGPT HANDOFF
+Prepared: 2026-10-21
+
+BASELINE AND SCOPE
+Original handoff: upload/Money app.zip
+Compared with: project/Money app
+Latest packaged source: deliverables/Money-app.zip
+
+This is a reconstructed change log based on the original ZIP, the current
+source, and the troubleshooting record. It is not an automatically recorded
+commit log. Individual edit times are not available.
+
+The source comparison identifies 19 modified files and 1 new file. This log
+also records the attempted Xcode fix that was subsequently removed.
+
+The original handoff already included the SwiftUI app, Overview/Budgets/
+Activity/Groceries/Reports, manual expense tracking, Shopping Mode, recurring
+bills, receipt/PDF capture and OCR, grocery price history, charts, ledger
+exports, and a Plaid balance backend. Those were not built from scratch in
+this continuation.
+
+[01] VISUAL DESIGN, MOTION, AND READABILITY
+Status: Implemented in source; updated screens not verified in Xcode here.
+
+- Added finer wavy engraving lines and a detailed circular rosette motif.
+- Added a subtle engraved page background while retaining the existing
+  ivory-and-green palette.
+- Added a shared paper-style appearance for forms and soft card shadows.
+- Added a light page-entry fade/slide and a spring-style button press effect.
+- Dimmed disabled primary buttons.
+- Added reusable animated currency text with monospaced digits.
+- Added an animated budget meter and warning styling for overspending.
+- Made custom motion respect the system Reduce Motion preference.
+- Allowed amount rows to stack their label and value on narrow layouts.
+- Applied warning styling to negative amounts.
+- Added interactive keyboard dismissal while scrolling.
+- Added transitions for report period changes and shopping-result appearance.
+- Standardized expense rows, including monospaced amounts and a minimum
+  44-point row height.
+- Applied the shared form appearance to expense, grocery, recurring-payment,
+  account, bank-connection, and settings screens.
+
+[02] EXPENSE SEARCH, FILTERING, AND CATEGORY REVIEW
+Status: Implemented in source; device interaction still needs verification.
+
+- Added Activity filters for category, current month versus all time, and
+  expenses with attachments.
+- Added search over merchant and note text, including OCR text stored there.
+- Added the matching expense count, total, and an empty-results state.
+- Added a reusable expense-list row.
+- Added a category review screen showing period totals, expense counts, and
+  counts of attached bills, with a bill-only filter and expense-detail links.
+- Linked categories in Budgets and Reports to their review screen.
+- Updated missing-receipt and missing-price-photo messages to point users
+  toward restoring a complete backup.
+
+Receipt capture, PDF attachments, OCR, and expense editing already existed.
+
+[03] COMPLETE BACKUPS WITH RECEIPTS AND PHOTOS
+Status: Implemented; new Swift regression test supplied but not run here.
+
+- Added Tender/Core/Backup.swift.
+- Added a versioned TenderBackup archive containing the ledger plus actual
+  receipt/PDF attachment bytes and grocery price-photo bytes.
+- Added "Export Backup with Bills & Photos" in Settings.
+- Retained the smaller "Export Ledger Only (JSON)" option, CSV export, and
+  text summaries.
+- Added checks for missing files, unexpected files, invalid ledger content,
+  unsafe attachment references, empty files, and oversized attachments.
+- Applied limits of 20 MB per attachment, 60 MB total attachment data, and
+  an encoded complete backup smaller than 120 MB.
+- Kept support for legacy ledger-only backups smaller than 30 MB.
+- Restores stage attachments under fresh UUID-based names and update the
+  restored ledger references before committing the ledger.
+- Failed restores remove their newly staged files. The existing pre-restore
+  ledger-copy behavior is retained.
+- Updated import limits, restore confirmation text, and backup error messages.
+- Updated Settings guidance to distinguish complete backups from analysis
+  exports and explain that iCloud export is a manual snapshot.
+
+Bank credentials are not included in backups. Automatic iCloud synchronization
+and automatic assistant access to files were not added.
+
+[04] RECURRING PAYMENT DATES AND REMINDERS
+Status: Implemented; new date regression tests supplied but not run here.
+
+- Added an optional recurrenceAnchor field to preserve the intended day.
+- Fixed monthly date drift after short months: January 31 can advance to
+  February 28 and then return to March 31.
+- Preserved February 29 as the intended yearly date so it can return in a
+  later leap year.
+- Preserved the anchor when editing an unchanged schedule and reset it when
+  the due date or cycle changes.
+- Used the anchor when advancing paid bills and calculating upcoming reserves.
+- Sorted notification candidates by due date and limited scheduling to the
+  60 nearest future reminders.
+- Corrected account help text: manual balance entry accepts zero or positive
+  values; recorded spending or bank snapshots may produce negative balances.
+  Credit-card debt is not modeled.
+
+Recurring payments and local reminders existed before these changes.
+Notification delivery on an iPhone remains unverified.
+
+[05] BANK BALANCE DUPLICATE PREVENTION
+Status: Implemented; new Swift regression test supplied but not run here.
+
+- Added an optional bankAccountKey combining provider environment and bank
+  account ID.
+- Applying a known bank account's balance now targets its existing matched
+  ledger account instead of allowing another copy of the same cash account.
+- On first application, the user can create an account or match an eligible
+  unlinked manual account.
+- Added ledger validation that rejects duplicate bank-account keys.
+- Preserved the provider snapshot retrieval time when applying a balance.
+- Kept the new data fields optional for compatibility with older ledgers.
+
+[06] PLAID LOGIN REPAIR AND BACKEND REQUEST HANDLING
+Status: Implemented; backend checks passed with a mocked Plaid provider.
+
+- Added "Load Existing Connections" and a per-connection "Repair Login"
+  action to the bank-connection interface.
+- Added client response models for saved bank connections.
+- Added GET /v1/connections to return saved connection IDs and display names,
+  without exposing saved access tokens.
+- Extended POST /v1/link-token to accept an optional itemID.
+- Repairing a known connection creates a Link token in update mode using its
+  existing saved access token and omits new-link products.
+- Unknown connection IDs return 404 before a provider request is made.
+- Successful update-mode repair does not exchange a new public token.
+- New-link requests retain their products and depository account filters.
+- Added a new-link confirmation explaining existing-login repair and Trial
+  connection-slot usage.
+- Cleared the displayed saved connections after configuration changes and
+  successful disconnection.
+- Added optional backend institution display names, trimmed to 100 characters.
+  The current app does not supply this label, so generic connection names can
+  still appear.
+- Rejected malformed JSON, null/array/non-object bodies, and oversized request
+  bodies with HTTP 400 instead of a generic service failure.
+- Changed ITEM_LOGIN_REQUIRED guidance to direct users to Load Existing
+  Connections, then Repair Login.
+
+The original backend already had authentication, encrypted token storage,
+refresh throttling, persistence, and retryable failed disconnections. This
+continuation added coverage for those behaviors; it did not originate them.
+No live bank was connected and no backend was deployed in this environment.
+
+[07] REPORT AND TEXT CORRECTIONS
+Status: Implemented in source.
+
+- Corrected exported period end dates so a completed month's summary ends
+  on that month's last day instead of showing the first day of the next month.
+- Cleared the selected heatmap day when switching weekly/monthly reports.
+- Updated summary wording to describe balances as bank/manual snapshots.
+- Revised backup, account, bank-repair, and setup explanations to match the
+  implemented behavior and its limits.
+
+[08] XCODE / IPHONE LAUNCH TROUBLESHOOTING AND REVERTED FIX
+Status: Project configuration corrected; successful device launch unconfirmed.
+
+Reported problem:
+- The app built, but opening it on the iPhone showed a blank screen.
+- The troubleshooting record identifies a dyld/SIGABRT failure looking for
+  LinkKit.framework/LinkKit.
+
+Changes retained in the current project:
+- Added LD_RUNPATH_SEARCH_PATHS to the Tender app target in both Debug and
+  Release with these values:
+    $(inherited)
+    @executable_path/Frameworks
+- Retained the existing LinkKit Swift package dependency and normal linking.
+
+Incorrect attempted change, subsequently removed:
+- I also added a manual Embed Frameworks copy phase for the Swift package
+  product. That was incorrect and caused a "LinkKit-product" file-not-found
+  build error.
+- I removed that manual phase and its extra copy entry in the corrected
+  project. It is not part of the final configuration.
+- My earlier instruction to use an Embed & Sign dropdown did not match the
+  blank Embed cell shown for this package entry. The revised instructions
+  no longer depend on that dropdown.
+
+Signing and run guidance:
+- The troubleshooting record also showed a missing development-team error.
+- I instructed the user to enable automatic signing and select their own
+  team, clean the build folder, select the iPhone, and use Product > Run.
+- I did not set a private signing-team ID, change the user's Mac settings,
+  or verify that those steps were completed on the user's machine.
+- Device connection and wireless pairing advice were troubleshooting
+  guidance, not changes to the app source.
+
+The runpath and project checks do not prove the original launch crash is
+fixed. A successful launch of the corrected source on the iPhone has not
+been confirmed.
+
+[09] TESTS, DOCUMENTATION, AND DELIVERY
+
+Backend tests:
+- Added 5 tests to the original 3, for 8 total.
+- The recorded run passed all 8 using a mocked provider.
+- Added coverage for saved-connection repair, unknown repair IDs and invalid
+  bodies, new-link initialization, persistence/restart and balance retrieval
+  behavior, refresh throttling, and failed-disconnect retry.
+- These tests made no live Plaid calls and do not verify iOS packaging.
+
+Swift tests:
+- Added 5 tests to the original 9, for 14 total.
+- New cases cover monthly date anchors, yearly leap-day anchors, duplicate
+  bank keys, complete-backup validation/round trips/reference renaming, and
+  decoding older ledgers without the new optional fields.
+- These tests were not executed on this revision: this environment has
+  neither Swift nor Xcode.
+- The original 3 UI tests were retained and not run here.
+
+Documentation and packaging:
+- Updated README.md, docs/bank-connect.md, and docs/verification.md.
+- Documented setup, bank-login repair, provider/hosting cost distinctions,
+  scope limits, backup behavior, and the remaining Mac/iPhone checks.
+- Checked project-file syntax and object references, preserved package
+  linking, Debug/Release runpaths, removal of the bad copy reference, and
+  supporting JSON/plist/scheme/archive structure.
+- Produced a clean source ZIP excluding build caches, credentials, and
+  personal bank data.
+- Replaced the delivered ZIP as the launch-packaging fixes were revised.
+
+Remaining verification includes a Mac build, Swift/UI tests, actual screen
+rendering, complete backup restore with real attachments, camera/OCR,
+notification delivery, Back Tap, iCloud export, and live Plaid connectivity.
+No TestFlight or App Store release was performed.
+
+FILE INVENTORY — NET DIFFERENCE FROM ORIGINAL SOURCE
+
+ADDED
+  Tender/Core/Backup.swift
+
+MODIFIED
+  README.md
+  Tender/Core/Ledger.swift
+  Tender/Services/BankClient.swift
+  Tender/Services/LedgerStore.swift
+  Tender/Views/ActivityAndExpenses.swift
+  Tender/Views/BankConnection.swift
+  Tender/Views/BudgetsAndShopping.swift
+  Tender/Views/Design.swift
+  Tender/Views/Groceries.swift
+  Tender/Views/RecurringAndAccounts.swift
+  Tender/Views/Reports.swift
+  Tender/Views/RootView.swift
+  Tender/Views/Settings.swift
+  Tender.xcodeproj/project.pbxproj
+  Tests/LedgerTests.swift
+  backend/server.mjs
+  backend/server.test.mjs
+  docs/bank-connect.md
+  docs/verification.md
+
+END OF CHANGE LOG
+
+
+[10] MAIN-PROJECT INTEGRATION AND USER FIXES — 2026-10-21
+Status: Implemented and verified on this Mac; live Plaid activation pending.
+
+Reviewed the reconstructed log above and compared it with the filesystem.
+The main project still held the original implementation; the changes described
+above were present in version/V2/Money app. Integrated those source, tests,
+documentation, Info.plist and Xcode project changes into the main project.
+Preserved the existing V2 signing team and framework runpaths. Historical
+version folders remain unchanged. Saved the prior root files under ignored
+build/before-v2-integration/.
+
+No invented values:
+- New personal ledgers have no sample transactions, accounts, subscriptions,
+  groceries, or price history. Default category allocations are zero.
+- Sample fixtures require an explicit debug UI-test launch argument.
+- Existing saved data is preserved. Added Settings -> Remove Sample Data
+  to select real entries to retain, with a protected recovery JSON written
+  before replacement. Attached files remain locally recoverable.
+- Kept expenses retain required account references; unselected balances are
+  zeroed and snapshot revisions changed so later deletion cannot refund fake cash.
+
+Grocery price saving:
+- Store name and photo are optional; price can be supplied when adding an item.
+- Added clear price validation and a saved confirmation.
+- The keyboard could cover the original save action, and Done could dismiss
+  an unsaved draft. A top Save Price action is now visible while editing;
+  Close asks before discarding. Successful saving dismisses the keyboard.
+- Verified creation, additional observation, calculated estimate and both
+  prices surviving a full app relaunch.
+
+Multiple banks/accounts and Plaid setup:
+- Added account count, combined recorded balance, first-account action and
+  account management access on Overview.
+- New bank links persist institution labels. Returned accounts show bank,
+  account name and mask. Adding another bank retains earlier links.
+- Centralized snapshot application with stable provider-account keys;
+  repeat refreshes update existing balances without creating duplicates.
+- Sandbox snapshots cannot enter the personal ledger.
+- Backend retrieves independent banks concurrently and keeps successful
+  accounts visible when another bank needs login repair.
+- Existing-item update mode enables additional account selection, preserving
+  the saved access token. Country codes are configurable and default to US.
+- Added authenticated bridge status and Test Connection in the app.
+- Added Set up Plaid.command / scripts/configure-bank.py for hidden local key
+  entry, owner-only .env permissions, preserved encryption keys, and separate
+  Sandbox/Production token storage. Initialized bridge-only keys locally;
+  Plaid credentials and HTTPS redirect remain blank and were not printed.
+- Rechecked official Plaid iOS, billing, account-selection and update-mode docs.
+
+Verification:
+- 18 Swift core tests passed.
+- 10 backend tests passed with a mocked provider, including multiple banks,
+  separate accounts, persistence, duplicate prevention and partial failures.
+- 6 iPhone 17 simulator UI tests passed. App build and launch succeeded.
+- Setup helper verified using temporary dummy configuration; secrets preserved
+  across reruns and environment changes, permissions 0600.
+- Rendered empty ledger and grocery save confirmation visually inspected.
+- Final result: /private/tmp/Tender-oct21-final.xcresult.
+- Logs and screenshot evidence: build/oct21-*; docs/verification.md updated.
+
+No real bank connection or external deployment has been performed. Completing
+Plaid requires the user's bank/country, Trial/Production status, private keys,
+HTTPS hosting/domain and signed Universal Link setup. Existing iPhone data
+has not been remotely cleared. The new review flow performs that cleanup on
+an upgraded installation while retaining the entries chosen by the user.
