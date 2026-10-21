@@ -10,3 +10,18 @@ __pycache__/
 node_modules/
 backend/data/
 *.enc
+
+# Cloudflare local auth/cache and private setup files
+.wrangler/
+.dev.vars
+.dev.vars.*
+backend/secrets*.json
+Current/backend/data/
+Current/backend/secrets*.json
+
+# Generated source-only handoff artifact (documents and source stay trackable)
+/Tender-ChatGPT-Handoff.zip
+
+# Imported handoff artifacts and recoverable local source snapshots
+/Archives/V3/
+/Archives/snapshots/

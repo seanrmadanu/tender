@@ -322,3 +322,136 @@ Plaid requires the user's bank/country, Trial/Production status, private keys,
 HTTPS hosting/domain and signed Universal Link setup. Existing iPhone data
 has not been remotely cleared. The new review flow performs that cleanup on
 an upgraded installation while retaining the entries chosen by the user.
+
+[11] MANUAL ACCOUNTS, APPROVED RESET, FREE CLOUDFLARE HOST — 2026-10-21
+Status: Source implemented and tested; Cloudflare deployed; private Plaid setup pending.
+
+User confirmed: Chase and Capital One; allow manual accounts without bank login;
+clear all old entries (nothing to keep); Cloudflare free account; free Apple
+Personal Team. User authorized Wrangler's account/user read and Worker script
+write access. No paid plan was selected. Cloudflare dashboard shows Free/$0.
+
+Rechecked version/V2/Money app following the user's version-folder clarification.
+Its design, reports, backup and scheduling changes are already integrated in the
+main project. Only v1 and V2 are present; no V3 folder exists here. Historical
+version folders remain unchanged. Continue using the root Tender.xcodeproj.
+
+- Added one-time freshStartVersion migration for the user-approved full reset.
+  Existing unmarked ledgers receive a protected recovery copy before replacement.
+  Restored backups are marked intentionally restored and survive relaunch.
+- Added prominent Add Manual Account, separate manual/connected labels, account
+  details, Update Balance and Add Purchase preselected for that account.
+- Added external-browser Plaid Hosted Link for free Personal Team builds.
+  Resume/Check Connection survives closing the app and backend restarts.
+  Completion is verified server-side; browser redirects alone do not authorize
+  a ledger change. Existing-bank repairs retain their Item/token.
+- Extracted common bank logic into backend/bridge.mjs. Node and Cloudflare now
+  share authentication, encryption, account normalization and bank API behavior.
+- Added worker.mjs + wrangler.jsonc using a SQLite-backed Durable Object with an
+  encrypted persistent vault, environment separation and persisted refresh limit.
+  Added stored-session ownership, duplicate-exchange protection and an interrupted
+  exchange recovery marker. No request/provider payload logging is enabled.
+- Deployed tender-bank-bridge at:
+  https://tender-bank-bridge.tender-bank-bridge.workers.dev
+  Version after public address configuration:
+  5875a86c-b3ed-4917-9dfb-6f69c3c7ebd2
+  Public HTTPS health succeeds; credentials were not configured at that check.
+- Added Set up Cloudflare Plaid.command and scripts/configure-cloudflare.py for
+  hidden local Production key entry and stdin-only Cloudflare Worker secret upload.
+  The helper preserves access/encryption keys and copies only the bridge token
+  to the user's clipboard for entry into Tender. Secret values are not printed.
+- Prefilled the deployed HTTPS URL in Bank Connect. App credentials stay in
+  device-only Keychain. No Plaid secret is embedded in the application.
+
+Verification: 18 core tests, 19 backend tests, and all 7 simulator UI cases passed
+(across the full run and focused corrected-selector rerun). Runtime tests use
+mock Plaid responses and exercise persistent Cloudflare storage across restarts.
+The new UI test verifies reset-once behavior and account-specific purchases.
+Setup helper tested with dummy values for no-output secret handling and mode 0600.
+See docs/verification.md and build/oct21-* for evidence. Real bank login and
+physical-iPhone operation remain unverified; private keys are the next setup step.
+Final follow-up: built the prefilled-host app, installed and launched it normally
+in the iPhone simulator without test/demo flags. Captured the empty-ledger screen
+and the Cloudflare Free/$0 plan. No physical iPhone installation was performed.
+
+[12] PORTABLE CONTINUATION HANDOFF — 2026-10-21
+Created Tender-Handoff.md at the user's request so another chat can continue.
+Includes the canonical root/V2 relationship, inherited versus new changes,
+approved decisions, reset behavior, groceries, manual/multiple bank accounts,
+Cloudflare deployment, private setup helpers, file map, test evidence and limits,
+remaining steps, and a paste-ready continuation prompt. No secrets included.
+Linked the handoff from README.md and marked the older setup-state section in
+docs/verification.md as superseded. Clarified that Associated Domains apply to
+the separate native route, not the current external-browser Hosted Link flow.
+This entry changes documentation only; no new bank connection or deployment.
+
+[13] PRIVATE SETUP COMPLETED; CLOUDFLARE CHECK FIX — 2026-10-21
+User entered Plaid keys privately. The initial helper uploaded Worker secrets,
+then Cloudflare rejected Python urllib's default client identifier at the final
+status check (HTTP 403, error 1010). Verified the same authenticated request with
+Tender-Setup/1.0 succeeds. Updated the helper to send that identifier, report
+upload-versus-verification progress, and show safe actionable HTTP errors.
+Removed the confusing Sandbox instruction from the Production Cloudflare path.
+Reran configure-cloudflare.py --upload-saved successfully, preserving all keys.
+Authenticated live status: Production, browser mode, zero saved connections.
+No private values printed. This verifies the bridge, not provider credentials or
+a real bank connection. Next: enter bridge token in Tender and connect a bank.
+Updated Tender-Handoff.md and docs/verification.md to reflect completed setup.
+
+[14] SEPARATE CURRENT APP FROM HISTORICAL VERSIONS — 2026-10-21
+At the user's request, moved the active project from the workspace root into
+Current/ and labeled this continuation v3 in Current/VERSION.txt. This is a
+source-history label, not an app marketing-version or bundle-ID change.
+Moved historical projects into Archives/v1 and Archives/v2, flattening the old
+version/v1/Money app 2 and version/V2/Money app wrappers. Verified every extracted
+historical file byte-for-byte after moving. Retained the original downloaded
+ZIP files as Archives/v1-original.zip and Archives/v2-original.zip.
+Current contains the app, Xcode project, backend, scripts, tests, build evidence
+and private configuration; historical projects are outside that project folder.
+Private .env bytes and owner-only 0600 permissions preserved; relocated private
+configuration/dependencies/build outputs verified Git-ignored. No vault changes.
+Added root Open Current Tender.command plus forwarding setup launchers, root
+README, VERSION-HISTORY.md, and Archives/README.md. Updated the handoff and active
+docs for the new paths. Main code, signing identity, bank host and keys unchanged.
+Verified shell syntax, Xcode project syntax, helper path resolution and existing
+Worker address/dependency availability. Build verification recorded separately
+below when complete. No commits or pushes performed for this reorganization.
+Relocated Current/Tender.xcodeproj built successfully for iOS Simulator using
+fresh derived data at /private/tmp/tender-layout-build. Evidence is now at
+Current/build/oct21-layout-build.log. Root/current README links also verified.
+
+[15] USER-REPORTED LIVE PLAID SUCCESS AND TEST CHECKLIST — 2026-10-21
+User reports Plaid connection succeeded and balances are visible. Recorded as
+user-reported live evidence, not independent provider/device verification; which
+banks/accounts and whether snapshots were applied to the ledger are unspecified.
+Created Tender-Test-Checklist.md with source-grounded iPhone test workflows,
+expected results, exact-cent manual-account examples, bank mapping/refresh,
+expense history, budgets, Shopping Mode/Back Tap, recurrence/reminders, grocery
+price persistence/OCR, bills, reports, iCloud exports/restore, offline behavior,
+accessibility checks and a failure-report template. Destructive actions are
+optional and separated from routine testing. Unsupported features are explicit.
+Updated root/current README, handoff and verification notes for reported success.
+Documentation only; no new bank calls, app changes, or tests executed this entry.
+
+[16] CHECKLIST ADAPTED TO USER'S CONNECTED ACCOUNT — 2026-10-21
+User chose their existing Plaid-connected account instead of a test account.
+Updated Tender-Test-Checklist.md for actual purchases, categories, subscriptions
+and grocery observations; manual-account cases are optional. Removed directions
+to seed fictional balances/spending or delete valid records. Explained deduction
+OFF for purchases already reflected in the bank snapshot, and that Mark Paid
+always deducts. Updated handoff preference. Documentation only; no bank changes.
+
+[17] PLANNING BACKLOG AND SMALL SOURCE HANDOFF ZIP — 2026-10-21
+Captured the user's latest 18 grouped requests in Tender-Requested-Changes.md,
+including Capital One failure, wallet cards, receipt/label scanning, cash,
+cart/date/voice groceries, bank transaction/recurring imports, automatic refresh,
+navigation/forms, Apple/Google sign-in, iCloud and deletion/privacy requirements.
+User explicitly requested planning only; feature implementation has not begun.
+Apple/Google prioritized; user remains on free Apple Personal Team. Research and
+nonsecret source inspection performed; no feature code or live deployment made.
+Added START-HERE-OTHER-CHAT.md with a continuation prompt, source/package guide,
+missing runtime dependencies, private-state preservation and verification limits.
+Packaging Tender-ChatGPT-Handoff.zip from active source and handoff documents;
+excludes archives, builds, dependency caches, credentials and financial data.
+Integrity manifest and archive verification accompany packaging. Original app,
+private configuration and bank state remain in place; no commits or pushes made.

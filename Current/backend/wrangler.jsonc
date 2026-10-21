@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tender-bank-bridge",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "PLAID_ENV": "production",
+    "PLAID_COUNTRY_CODES": "US",
+    "TENDER_LINK_MODE": "browser",
+    "TENDER_PUBLIC_URL": "https://tender-bank-bridge.tender-bank-bridge.workers.dev",
+    "TENDER_USER_ID": "tender-personal"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BANK_VAULT",
+        "class_name": "BankVault"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "BankVault"
+      ]
+    }
+  ],
+  "observability": {
+    "enabled": false
+  },
+  "account_id": "037b277ea7a8baf6f1333d564201556e"
+}

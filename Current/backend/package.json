@@ -1,0 +1,18 @@
+{
+  "name": "tender-bank-bridge",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --env-file=.env server.mjs",
+    "test": "node --test *.test.mjs",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "miniflare": "5.20261019.1-beta",
+    "wrangler": "^4.151.3"
+  }
+}

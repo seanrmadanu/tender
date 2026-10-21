@@ -1,0 +1,5 @@
+v3 — current continuation
+Updated October 21, 2026
+Active working project: Tender.xcodeproj
+Includes integrated V2 plus empty-ledger, grocery, manual/multiple-account, and Cloudflare work.
+This is a source-history label; the app marketing version is unchanged.
