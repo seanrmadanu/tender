@@ -1,3 +1,21 @@
+## Latest scanner update — v4.1.5, October 22, 2026
+
+Active project: Current/Tender.xcodeproj; Merged remains untouched.
+The three user screenshots displayed prices 5.79, 9.79 and 99.97 but incorrect
+names (S finance tracker, p, N). ShelfLabelParser previously selected the first
+line containing any letters. It now skips isolated characters, known page/UI
+text, package-size-only lines and price lines, and joins up to three consecutive
+uppercase product-title lines. Returns no name when only rejected text remains.
+
+38/38 core checks passed in the run started before the model switch. Fixtures
+are synthetic text, not captured OCR from the user's images. No new UI tests,
+iPhone installation or end-to-end accuracy claim. User requested to handle
+real scanner/app testing; don't rerun broad suites by default. This text parser
+cannot recover words missed by OCR or reliably isolate every label from a page.
+Version checkpoint and detailed log accompany this change.
+
+---
+
 ## Latest UI update — v4.1.3
 
 Shopping Mode quantity now uses a native scrolling wheel beside unit price,

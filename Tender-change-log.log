@@ -525,3 +525,7 @@ Replaced Shopping Mode minus/plus controls with an inline SwiftUI wheel picker, 
 
 [2026-10-22] v4.1.4 — Shelf-label nutrition text filtering
 User screenshot showed I 1/3 CUP SERVING as name and blank price. Found nutrition fractions incorrectly triggering the multi-buy guard. Filter serving/nutrition lines before name/price/deal detection. Added synthetic OCR-text regression with nutrition facts and $4.06, plus checks that real multi-buy offers still remain ambiguous. 37/37 core tests passed. Original public photo download failed HTTP 403; full OCR/device reproduction remains unverified. No phone install, private settings or backend changes. Previous checkpoint 9fdd514.
+
+[2026-10-22] v4.1.5 — Shelf-label product-name parsing
+User outputs showed correct expected prices but names S finance tracker, p and N. Replaced first-alphabetic-line selection with filtering of isolated characters, known page/UI text, package sizes and price lines. Joins up to three consecutive uppercase title lines; returns nil when no usable name remains. Added synthetic yogurt/wine/faucet/no-name regressions; these are not actual captured OCR transcripts.
+38/38 core tests passed in the run started before the model switch; inspected existing results without rerunning. Per user instruction, real scans/app behavior testing is left to the user. No additional simulator tests, iPhone install, production deployment, private configuration or Merged changes. Updated version history, handoff and verification. Previous checkpoint: 4470db1.

@@ -112,6 +112,18 @@ final class PersonalFeatureTests: XCTestCase {
         XCTAssertNil(ShelfLabelParser.parse("1/3 CUP SERVING\nCereal\n2 for $5.00").price)
         XCTAssertNil(ShelfLabelParser.parse("Cereal\n2/$5.00").price)
     }
+    func testShelfNamesIgnoreScreenTextAndIsolatedCharacters() {
+        let yogurt = ShelfLabelParser.parse("S finance tracker\n558297\nKIRKLAND SIGNATURE\nNON-FAT GREEK YOGURT\n2 CT 32 OZ\n5.79")
+        XCTAssertEqual(yogurt.name, "KIRKLAND SIGNATURE NON-FAT GREEK YOGURT")
+        XCTAssertEqual(yogurt.price, 579)
+        let wine = ShelfLabelParser.parse("p\n1226845\nKIRKLAND SIGNATURE\nCOLUMBIA VALLEY\nCABERNET SAUVIGNON\n750ML\n9.79")
+        XCTAssertEqual(wine.name, "KIRKLAND SIGNATURE COLUMBIA VALLEY CABERNET SAUVIGNON")
+        XCTAssertEqual(wine.price, 979)
+        let faucet = ShelfLabelParser.parse("N\n1806260\nKOHLER GUILD\nPULLDOWN KITCHEN FAUCET\n99.97")
+        XCTAssertEqual(faucet.name, "KOHLER GUILD PULLDOWN KITCHEN FAUCET")
+        XCTAssertEqual(faucet.price, 9997)
+        XCTAssertNil(ShelfLabelParser.parse("N\np\nS finance tracker\n750ML\n9.79").name)
+    }
     func testShelfLabelWithTwoPricesOnOneLineNeedsReview() {
         XCTAssertNil(ShelfLabelParser.parse("Ice cream\nRegular $4.99 now $3.99").price)
         XCTAssertEqual(ShelfLabelParser.parse("Ice cream\n$3.99 $3.99").price, 399)

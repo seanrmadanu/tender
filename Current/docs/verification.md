@@ -1,3 +1,19 @@
+## Shelf-label product names — October 22, 2026
+
+v4.1.5 replaces first-alphabetic-line selection with product-name filtering.
+Rejects isolated characters, known page/UI text, size-only lines and prices;
+joins up to three consecutive uppercase title lines. Synthetic cases cover
+Greek yogurt, Cabernet, faucet, and no usable name, while checking the prices.
+
+38/38 core tests passed in build/oct22-scanner-name-tests.log, from the run
+started before the model-switch pause. Results inspected on continuation;
+no repeat run, new simulator build, UI suite or physical-device test performed.
+User will test real scans. Original image OCR transcripts were not supplied;
+passing synthetic cases does not establish that the phone's names are fixed.
+Price extraction and the existing nutrition/multi-buy guards are unchanged.
+
+---
+
 ## Shelf-label nutrition filtering — October 22, 2026
 
 User screenshot showed serving-size text used as the item name and no price.

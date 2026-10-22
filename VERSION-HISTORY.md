@@ -1,3 +1,13 @@
+# Active: v4.1.5 — Shelf-label product names
+
+October 22, 2026. Reject isolated OCR characters, known surrounding page text,
+and package-size-only lines when selecting a product name. Join up to three
+consecutive uppercase title lines. Prior checkpoint: `4470db1`.
+38/38 core checks passed before the model-switch pause; no additional simulator
+or device tests. User will test real scans. See Current/docs/verification.md.
+
+---
+
 # Active: v4.1.4 — Shelf label parsing fix
 
 Nutrition fractions no longer trigger multi-buy ambiguity or become item names.

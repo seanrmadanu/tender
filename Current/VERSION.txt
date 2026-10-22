@@ -1,5 +1,5 @@
-v4.1.4 — Shelf-label nutrition text filtering
+v4.1.5 — Shelf-label product names
 Updated October 22, 2026
 Active project: Current/Tender.xcodeproj
-37/37 core tests passed. Full-image OCR/device rescan pending.
+38/38 core tests passed; real scan testing left to user.
 Earlier versions and verification preserved.

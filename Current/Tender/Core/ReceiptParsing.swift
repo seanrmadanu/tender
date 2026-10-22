@@ -71,8 +71,7 @@ public enum ShelfLabelParser {
             line.range(of: #"\b(servings?|calories|nutrition|sodium|sugars?|protein|cholesterol|carbohydrates?|saturated|trans\s+fat|daily\s+value)\b|\d\s*(?:/\s*\d)?\s*cups?\b"#,
                        options: .regularExpression.union(.caseInsensitive)) == nil
         }
-        let name = labelLines.first { $0.rangeOfCharacter(from: .letters) != nil &&
-            $0.range(of: #"\b(unit price|save|member|sale|price|per)\b"#, options: .regularExpression.union(.caseInsensitive)) == nil }
+        let name = productName(in: labelLines)
         let priceLines = labelLines.filter { $0.range(of: #"\b(per|unit price|save)\b|/\s*(oz|lb|kg|100)"#, options: .regularExpression.union(.caseInsensitive)) == nil }
         let pricePattern = try! NSRegularExpression(pattern: #"\$?\b(\d{1,6}\.\d{2})\b"#)
         let amounts = priceLines.flatMap { line in
@@ -86,4 +85,28 @@ public enum ShelfLabelParser {
         return ShelfLabel(name: name, price: Set(amounts).count == 1 && !deal ? amounts.first : nil,
             unit: ReceiptParser.capture(#"\b(\d+(?:\.\d+)?\s*(?:fl\s*oz|oz|lb|kg|ml|liters?|ct))\b"#, text))
     }
+    private static func productName(in lines: [String]) -> String? {
+        func isCandidate(_ line: String) -> Bool {
+            guard line.filter({ $0.isLetter }).count >= 3, line.count <= 100,
+                  !line.contains("@"), !line.contains("://") else { return false }
+            let metadata = #"\b(unit price|save|member|sale|price|per|barcode|item no|net wt|rbst|gluten free|non.gmo|finance tracker|shopping mode|chatgpt|choose label photo|open image)\b|www\."#
+            guard line.range(of: metadata, options: [.regularExpression, .caseInsensitive]) == nil else { return false }
+            // Size-only lines belong to package details, not the product title.
+            let sizeOnly = #"^[\d\s./×x-]+(?:fl\s*oz|oz|lb|kg|g|ml|liters?|ct|count|pk|pack|loads?|bottles?|btls?)(?:\b.*)?$"#
+            return line.range(of: sizeOnly, options: [.regularExpression, .caseInsensitive]) == nil &&
+                line.range(of: #"\$\s*\d|\d+\.\d{2}"#, options: .regularExpression) == nil
+        }
+        guard let first = lines.firstIndex(where: isCandidate) else { return nil }
+        var parts = [lines[first]]
+        // Shelf titles are often split over successive capitalized OCR lines.
+        // Stop at IDs, prices, sizes or mixed-case prose rather than joining them.
+        if lines[first] == lines[first].uppercased() {
+            for line in lines.dropFirst(first + 1).prefix(2) {
+                guard isCandidate(line), line == line.uppercased() else { break }
+                parts.append(line)
+            }
+        }
+        return parts.joined(separator: " ")
+    }
+
 }
