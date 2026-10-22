@@ -1,3 +1,11 @@
+## Latest UI update — v4.1.3
+
+Shopping Mode quantity now uses a native scrolling wheel beside unit price,
+replacing minus/plus controls. 2/2 simulator cart/purchase tests passed and
+the dark screenshot was reviewed. Earlier notes below describe prior versions.
+
+---
+
 ## Latest change — October 22, 2026: quick cart
 
 Shopping Mode Add to Cart now saves directly, without a second form. Quantity

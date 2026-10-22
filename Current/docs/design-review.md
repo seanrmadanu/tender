@@ -88,3 +88,15 @@ previous name/price so ambiguous OCR cannot silently reuse an old price.
 
 Camera/OCR on physical hardware remains a device check; simulator results are
 recorded in verification.md.
+
+## October 22: quantity wheel follow-up
+
+Replaced Shopping Mode's minus/count/plus controls with the native SwiftUI wheel
+picker requested from the iOS Timer reference. It stays inline to the right of
+unit price at normal text sizes (108 × 116 points), with a highlighted selected
+row and vertically scrolling values 1–99. Accessibility sizes retain the existing
+stacked layout. Quantity has a VoiceOver label; cart and purchase totals continue
+to derive from the same selection.
+
+`pickers.md > Best practices`: “Avoid switching views to show a picker.” The
+quantity wheel stays on the current screen instead of opening another sheet.

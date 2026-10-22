@@ -149,14 +149,17 @@ struct ShoppingView: View {
         }.frame(maxWidth: .infinity)
     }
     private var quantityControl: some View {
-        HStack(spacing: 0) {
-            Button { quantity -= 1 } label: { Image(systemName: "minus").frame(width: 44, height: 44) }
-                .disabled(quantity <= 1).accessibilityLabel("Decrease quantity")
-            Text("\(quantity)").font(.body.monospacedDigit()).frame(minWidth: 28)
-                .accessibilityLabel("Quantity").accessibilityValue("\(quantity)").accessibilityIdentifier("shopping-quantity")
-            Button { quantity += 1 } label: { Image(systemName: "plus").frame(width: 44, height: 44) }
-                .disabled(quantity >= 99).accessibilityLabel("Increase quantity")
-        }.buttonStyle(.plain).background(Ink.line.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
+        Picker("Quantity", selection: $quantity) {
+            ForEach(1...99, id: \.self) { value in
+                Text("\(value)").font(.body.monospacedDigit()).tag(value)
+            }
+        }
+        .pickerStyle(.wheel)
+        .labelsHidden()
+        .frame(width: 108, height: 116)
+        .clipped()
+        .accessibilityLabel("Quantity")
+        .accessibilityIdentifier("shopping-quantity")
     }
     private func addToCart() {
         guard canAdd else { return }

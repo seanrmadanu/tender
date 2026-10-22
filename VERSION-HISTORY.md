@@ -1,3 +1,12 @@
+# Active: v4.1.3 — Quantity wheel
+
+October 22, 2026. Replaced Shopping Mode quantity buttons with an inline native
+scrolling picker, matching the requested Timer-style interaction. Range 1–99;
+cart/purchase behavior preserved. 2/2 simulator UI tests passed.
+Pre-change checkpoint: `f9fa895`. See latest Git commit.
+
+---
+
 # Active: v4.1.2 — Shopping Mode quick cart
 
 October 22, 2026. Added quantity beside unit price and a top-right scanner icon.

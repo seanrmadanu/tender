@@ -1,3 +1,15 @@
+## Quantity wheel — October 22, 2026
+
+Replaced Shopping Mode's quantity buttons with an inline native wheel, 1–99.
+Simulator build and **2/2 UI tests passed**: wheel selection persists in the
+cart and drives the correct purchase total, account deduction and linked item.
+Reviewed the dark-mode screenshot at `build/oct22-shopping-quantity-wheel.png`.
+Evidence: `build/oct22-quantity-wheel-tests.log` and
+`/private/tmp/Tender-oct22-quantity-wheel.xcresult`.
+No physical iPhone installation; maximum text size/VoiceOver not retested.
+
+---
+
 ## Shopping Mode quick cart — October 22, 2026
 
 Shopping Mode now saves directly to today's grocery list. No extra Shopping Item
