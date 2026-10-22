@@ -4,6 +4,7 @@ public struct ShoppingPlanDraft: Sendable {
     public var item: String
     public var store: String
     public var date: Date
+    public var hasExplicitDate: Bool
     public var hasExplicitTime: Bool
 }
 public enum ShoppingPlanParser {
@@ -26,6 +27,6 @@ public enum ShoppingPlanParser {
         var item = text.replacingOccurrences(of: #"^(?:i\s+)?(?:want(?:\s+to)?|need(?:\s+to)?|plan\s+to|remind\s+me\s+to)\s+(?:(?:get|buy|pick\s+up)\s+)?"#, with: "", options: [.regularExpression, .caseInsensitive])
         item = item.components(separatedBy: "\n").first ?? item
         if let range = item.range(of: #"\s+(?:tomorrow|today|when|at|on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b"#, options: [.regularExpression, .caseInsensitive]) { item = String(item[..<range.lowerBound]) }
-        return ShoppingPlanDraft(item: item.trimmingCharacters(in: .whitespacesAndNewlines), store: shop.trimmingCharacters(in: .whitespacesAndNewlines), date: date, hasExplicitTime: explicitTime)
+        return ShoppingPlanDraft(item: item.trimmingCharacters(in: .whitespacesAndNewlines), store: shop.trimmingCharacters(in: .whitespacesAndNewlines), date: date, hasExplicitDate: lower.contains("today") || lower.contains("tomorrow") || calendar.weekdaySymbols.contains(where: { lower.contains($0.lowercased()) }), hasExplicitTime: explicitTime)
     }
 }

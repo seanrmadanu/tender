@@ -44,6 +44,7 @@ struct ReviewBankPurchase: View {
     let transaction: BankTransaction
     @State private var category: UUID?
     @State private var match: UUID?
+    @State private var recurring = false
     private var account: Account? { store.ledger.accounts.first { $0.bankAccountKey == transaction.accountKey } }
     private var recorded: Bool { store.ledger.expenses.contains { $0.bankTransactionID == transaction.id } }
     private var candidates: [Expense] {
@@ -52,8 +53,12 @@ struct ReviewBankPurchase: View {
     var body: some View {
         Form {
             Section { BankActivityRow(transaction: transaction) }
+            if transaction.canRecord {
+                Button("Create Recurring Payment", systemImage: "repeat") { recurring = true }
+            }
             if recorded { Text("This bank purchase is already matched to your recorded expenses.") }
             else if !transaction.canRecord { Text("Only posted USD purchases can become an expense. Pending entries may change; credits and transfers are shown here without increasing spending.") }
+            else if account?.isArchived == true { Text("This card was removed from your wallet. Restore it in Settings → Accounts to record a new purchase.") }
             else if account == nil { Text("First add or match this bank account in Settings → Accounts → Bank Connect.") }
             else {
                 Section {
@@ -72,5 +77,10 @@ struct ReviewBankPurchase: View {
                 } header: { Text("Review") } footer: { Text("No balance deduction. Bank-created expenses follow later bank corrections; matched manual receipts retain your entered values.") }
             }
         }.paperForm().navigationTitle("Review Purchase").toolbar { Button("Done") { dismiss() } }
+            .sheet(isPresented: $recurring) {
+                NavigationStack { RecurringForm(suggestion: SubscriptionSuggestion(id: transaction.id, merchant: transaction.merchant,
+                    amount: transaction.amountCents, cycle: .monthly,
+                    nextDue: Calendar.current.date(byAdding: .month, value: 1, to: transaction.purchaseDate ?? Date()) ?? Date(), occurrences: 1)) }
+            }
     }
 }

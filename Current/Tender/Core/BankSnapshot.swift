@@ -31,6 +31,7 @@ extension Ledger {
             setBalance(accountID: id, available: amount)
             accounts[index].bankAccountKey = key
             accounts[index].needsReconnection = false
+            accounts[index].isArchived = false
             accounts[index].snapshotAt = snapshot.retrievedAt
             accounts[index].source = "Plaid snapshot"
         } else {

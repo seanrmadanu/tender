@@ -35,6 +35,7 @@ public struct Account: Identifiable, Codable, Equatable, Sendable {
     public var bankAccountKey: String? = nil
     public var isCash: Bool? = nil
     public var needsReconnection: Bool? = nil
+    public var isArchived: Bool? = nil
 }
 public struct Expense: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID = UUID()
@@ -112,7 +113,29 @@ public struct Ledger: Codable, Equatable, Sendable {
     public var groceries: [GroceryItem] = []
     public var bankActivity: [BankActivityItem]? = nil
     public init() {}
-    public var available: Int64 { accounts.reduce(0) { $0 + $1.available } }
+    public var activeAccounts: [Account] { accounts.filter { $0.isArchived != true } }
+    public var available: Int64 { activeAccounts.reduce(0) { $0 + $1.available } }
+    public mutating func removeCategories(_ ids: Set<UUID>) {
+        let needsFallback = expenses.contains { ids.contains($0.categoryID) } || recurring.contains { ids.contains($0.categoryID) }
+        categories.removeAll { ids.contains($0.id) }
+        if needsFallback {
+            let replacement = ensureCategory(named: "Uncategorized")
+            for i in expenses.indices where ids.contains(expenses[i].categoryID) { expenses[i].categoryID = replacement }
+            for i in recurring.indices where ids.contains(recurring[i].categoryID) { recurring[i].categoryID = replacement }
+        }
+    }
+    public mutating func ensureCategory(named name: String) -> UUID {
+        if let category = categories.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) { return category.id }
+        let category = BudgetCategory(name: name, symbol: "tag", limit: 0)
+        categories.append(category)
+        return category.id
+    }
+    public mutating func archiveAccount(_ id: UUID) {
+        guard let i = accounts.firstIndex(where: { $0.id == id }) else { return }
+        accounts[i].isArchived = true
+        // Historical deductions must not refund an inactive balance later.
+        accounts[i].balanceRevision = UUID()
+    }
     public var monthlyBudget: Int64 { categories.reduce(0) { $0 + $1.limit } }
     public func spent(category: UUID? = nil, in interval: DateInterval) -> Int64 {
         expenses.filter { (category == nil || $0.categoryID == category) && $0.date >= interval.start && $0.date < interval.end }.reduce(0) { $0 + $1.amount }
@@ -148,13 +171,13 @@ public struct Ledger: Codable, Equatable, Sendable {
     public func shopping(amount: Int64, category: BudgetCategory, at date: Date = Date()) -> ShoppingDecision {
         let categoryLeft = remaining(category, at: date)
         let cashLeft = available - upcomingReserve(at: date)
-        return ShoppingDecision(validAmount: amount > 0, categoryAfter: categoryLeft - amount, cashAfter: cashLeft - amount, hasAccount: !accounts.isEmpty)
+        return ShoppingDecision(validAmount: amount > 0, categoryAfter: categoryLeft - amount, cashAfter: cashLeft - amount, hasAccount: !activeAccounts.isEmpty)
     }
     public mutating func record(_ expense: Expense, deductFromBalance: Bool = true) throws {
         guard expense.amount > 0, expense.amount <= 99_999_999_999,
               !expense.merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               categories.contains(where: { $0.id == expense.categoryID }),
-              let index = accounts.firstIndex(where: { $0.id == expense.accountID }) else { throw LedgerError.invalidExpense }
+              let index = accounts.firstIndex(where: { $0.id == expense.accountID && $0.isArchived != true }) else { throw LedgerError.invalidExpense }
         // A future expense is a plan, not a posted transaction.
         guard expense.date <= Date() else { throw LedgerError.futureExpense }
         var saved = expense

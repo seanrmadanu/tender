@@ -75,12 +75,31 @@ extension Ledger {
         }
     }
     public var subscriptionSuggestions: [SubscriptionSuggestion] {
-        let transactions = (bankActivity ?? []).flatMap(\.transactions).filter(\.canRecord)
-        let groups = Dictionary(grouping: transactions) { $0.accountKey + ":" + $0.merchant.lowercased().trimmingCharacters(in: .whitespaces) }
+        var transactions = (bankActivity ?? []).flatMap(\.transactions).filter(\.canRecord)
+        let bankIDs = Set(transactions.map(\.id))
+        let bankCharges = Dictionary(grouping: transactions) { $0.accountKey + ":" + normalizedMerchant($0.merchant) + ":" + String($0.amountCents) }
+        let dateFormatter = DateFormatter()
+        dateFormatter.calendar = Calendar(identifier: .gregorian)
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        for expense in expenses where expense.bankTransactionID.map({ !bankIDs.contains($0) }) ?? true {
+            guard let account = accounts.first(where: { $0.id == expense.accountID }) else { continue }
+            let key = account.bankAccountKey ?? account.id.uuidString
+            // An unlinked manual receipt may already represent the same bank charge.
+            let matchingCharges = bankCharges[key + ":" + normalizedMerchant(expense.merchant) + ":" + String(expense.amount)] ?? []
+            guard !matchingCharges.contains(where: {
+                abs(($0.purchaseDate ?? .distantPast).timeIntervalSince(expense.date)) < 4 * 86400
+            }) else { continue }
+            transactions.append(BankTransaction(id: expense.id.uuidString, accountKey: key,
+                merchant: expense.merchant, amountCents: expense.amount, currency: "USD",
+                date: dateFormatter.string(from: expense.date), pending: false, category: "", isTransfer: false))
+        }
+        let groups = Dictionary(grouping: transactions) { $0.accountKey + ":" + normalizedMerchant($0.merchant) }
         return groups.compactMap { (key, values) -> SubscriptionSuggestion? in
             let ordered = values.sorted { $0.date < $1.date }
-            guard ordered.count >= 3, let last = ordered.last, let lastDate = last.purchaseDate,
-                  !recurring.contains(where: { $0.name.caseInsensitiveCompare(last.merchant) == .orderedSame }) else { return nil }
+            guard ordered.count >= 2, let last = ordered.last, let lastDate = last.purchaseDate,
+                  !normalizedMerchant(last.merchant).isEmpty,
+                  !recurring.contains(where: { normalizedMerchant($0.name) == normalizedMerchant(last.merchant) }) else { return nil }
             let recent = Array(ordered.suffix(4))
             let amounts = recent.map(\.amountCents)
             guard let low = amounts.min(), let high = amounts.max(), high - low <= max(100, high / 10) else { return nil }
@@ -90,8 +109,19 @@ extension Ledger {
             else if gaps.allSatisfy({ (26...35).contains($0) }) { cycle = .monthly }
             else if gaps.allSatisfy({ (350...380).contains($0) }) { cycle = .yearly }
             else { return nil }
-            let bill = RecurringBill(name: last.merchant, amount: last.amountCents, categoryID: UUID(), nextDue: lastDate, cycle: cycle, recurrenceAnchor: lastDate)
-            return SubscriptionSuggestion(id: key, merchant: last.merchant, amount: last.amountCents, cycle: cycle, nextDue: bill.advanced(), occurrences: recent.count)
+            var bill = RecurringBill(name: last.merchant, amount: last.amountCents, categoryID: UUID(), nextDue: lastDate, cycle: cycle, recurrenceAnchor: lastDate)
+            bill.nextDue = bill.advanced()
+            for _ in 0..<10_000 {
+                guard bill.nextDue < Calendar.current.startOfDay(for: Date()) else { break }
+                let next = bill.advanced()
+                guard next > bill.nextDue else { break }
+                bill.nextDue = next
+            }
+            return SubscriptionSuggestion(id: key, merchant: last.merchant, amount: last.amountCents, cycle: cycle, nextDue: bill.nextDue, occurrences: recent.count)
         }.sorted { $0.nextDue < $1.nextDue }
     }
+}
+
+private func normalizedMerchant(_ name: String) -> String {
+    name.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
 }

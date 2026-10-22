@@ -535,3 +535,20 @@ User suggested generic product names after scanner returned TUBES for yogurt. Ad
 
 [2026-10-22] v4.1.7 — Shopping name wrapping and keyboard dismissal
 Replaced horizontal item field with vertical three-line reserved text region (72pt minimum), removed PRICE PER ITEM caption, and retained price accessibility labeling. Long names wrap and scroll inside the field; accessibility text sizes scale its line height. Added keyboard-down toolbar action for name/decimal fields and name submit dismissal. Direct per-field focus removes nested focus ownership; full-field tap regions and existing scroll dismissal retained. Scanner/photo opening and cart save clear focus. Simulator-target build passed; no UI tests or physical install, user handles visual/interaction checks. Updated handoff, version and verification. Prior checkpoint 1bc1f24.
+
+[2026-10-22] v4.2 — Page-by-page updates
+- Budgets: top-right Edit enters card selection; select one to edit, or delete multiple with confirmation. Referenced expenses and recurring bills move to Uncategorized; history is retained.
+- Groceries: relative day header plus calendar date; double-tap resets to today. Removed shopping-day card; planned basket total is beside Groceries. Single-section creation form with scan/mic icons, name, price, quantity, optional unit/store, date and reminder. Date defaults to selected day. Photo scans clear stale prices. Save disables during speech/scanning/saving.
+- Dictation: retain committed words between timestamp-delimited utterances and recognition tasks; automatic final-result restart, explicit stop, retained text on errors. Spoken time alone respects selected day.
+- Wallet: paged cards with selectable dots; Edit shows overlapping cards with removal controls (separated at accessibility sizes). Removed cards are archived, excluded from available cash/new payment choices, and restorable in Settings. Historical references/receipts remain valid. Explicit bank snapshot apply can restore an archived card; automatic refresh does not.
+- Recurring: normalized merchant matching, bank plus recorded expense history with bank-receipt deduplication, two-charge tentative suggestions, future estimated next due date, history/status explanations and refresh. Create Recurring Payment also available on a bank purchase. Save works without pre-existing categories via Uncategorized; bank-linked Mark Paid avoids another balance deduction.
+
+Validation: simulator-target compilation succeeded, including final edits, in
+Current/build/oct22-page-updates-final-build.log. No runtime/unit/UI tests or live
+bank/device/microphone calls; user requested to handle functional testing. Updated
+an existing test expectation for the intentional two-charge threshold but did not run it.
+No backend deployment, new Plaid product, signing change or personal data reset.
+Live bank subscription detection remains unverified; an older deployed Worker or
+missing transaction history may still need follow-up. Decisions/questions saved in
+Current/docs/review-when-back.md. Previous checkpoint: cc52259. Merged untouched.
+

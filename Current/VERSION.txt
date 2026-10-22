@@ -1,5 +1,6 @@
-v4.1.7 — Shopping name wrapping and keyboard dismissal
+v4.2 — Budget, groceries, recurring and wallet updates
 Updated October 22, 2026
 Active project: Current/Tender.xcodeproj
-Simulator-target compilation passed; device UI testing left to user.
-Earlier versions and verification preserved.
+Compilation passed; user owns runtime testing.
+Saved decisions: Current/docs/review-when-back.md
+Earlier versions preserved in Git and version history.

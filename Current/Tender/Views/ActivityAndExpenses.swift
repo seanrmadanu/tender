@@ -134,10 +134,10 @@ struct ExpenseForm: View {
                 TenderField("Amount (USD)", text: $amount).keyboardType(.decimalPad)
                 Picker("Category", selection: $category) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }
                 Toggle("Paid with cash", isOn: $cash)
-                if !cash { Picker("Paid from", selection: $account) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.accounts.filter { $0.isCash != true }) { Text($0.name).tag(Optional($0.id)) } } }
+                if !cash { Picker("Paid from", selection: $account) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.activeAccounts.filter { $0.isCash != true }) { Text($0.name).tag(Optional($0.id)) } } }
                 if cash {
-                    if store.ledger.accounts.contains(where: { $0.isCash == true }) {
-                        Picker("Cash wallet", selection: $cashAccount) { ForEach(store.ledger.accounts.filter { $0.isCash == true }) { Text($0.name).tag(Optional($0.id)) } }
+                    if store.ledger.activeAccounts.contains(where: { $0.isCash == true }) {
+                        Picker("Cash wallet", selection: $cashAccount) { ForEach(store.ledger.activeAccounts.filter { $0.isCash == true }) { Text($0.name).tag(Optional($0.id)) } }
                     } else { Text("A cash wallet will be created with a zero opening balance. Set the amount you actually hold in Settings → Accounts.").font(.footnote) }
                 }
                 DatePicker("Date", selection: $date, in: ...Date(), displayedComponents: .date)
@@ -155,9 +155,9 @@ struct ExpenseForm: View {
             } header: { Text("Paper trail") } footer: { Text("Photos prefill recognized details for review. Check the total, date and payment method before saving. The receipt image is retained; PDFs are retained as attachments. Recognition runs on device.") }
         }.paperForm().navigationTitle("Add Expense").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(!valid) } }
-            .onAppear { guard !initialized else { return }; initialized = true; amount = initialAmount; merchant = initialMerchant; category = initialCategory; account = initialAccount ?? store.ledger.accounts.first(where: { $0.isCash != true })?.id; cash = store.ledger.accounts.first(where: { $0.id == initialAccount })?.isCash == true; cashAccount = cash ? initialAccount : store.ledger.accounts.first(where: { $0.isCash == true })?.id; deductFromBalance = cash || store.ledger.accounts.first(where: { $0.id == account })?.bankAccountKey == nil }
-            .onChange(of: account) { _, id in deductFromBalance = store.ledger.accounts.first(where: { $0.id == id })?.bankAccountKey == nil }
-            .onChange(of: cash) { _, value in deductFromBalance = value || store.ledger.accounts.first(where: { $0.id == account })?.bankAccountKey == nil }
+            .onAppear { guard !initialized else { return }; initialized = true; amount = initialAmount; merchant = initialMerchant; category = initialCategory; account = initialAccount ?? store.ledger.activeAccounts.first(where: { $0.isCash != true })?.id; cash = store.ledger.activeAccounts.first(where: { $0.id == initialAccount })?.isCash == true; cashAccount = cash ? initialAccount : store.ledger.activeAccounts.first(where: { $0.isCash == true })?.id; deductFromBalance = cash || store.ledger.activeAccounts.first(where: { $0.id == account })?.bankAccountKey == nil }
+            .onChange(of: account) { _, id in deductFromBalance = store.ledger.activeAccounts.first(where: { $0.id == id })?.bankAccountKey == nil }
+            .onChange(of: cash) { _, value in deductFromBalance = value || store.ledger.activeAccounts.first(where: { $0.id == account })?.bankAccountKey == nil }
             .onChange(of: photo) { _, item in Task { do { if let data = try await item?.loadTransferable(type: Data.self) { await handlePhoto(data) } } catch { readError = "Couldn’t load this photo. Choose another image." } } }
             .fileImporter(isPresented: $imported, allowedContentTypes: [.pdf, .image]) { result in
                 do {
@@ -197,7 +197,7 @@ struct ExpenseForm: View {
             if let groceryID, ledger.groceries.first(where: { $0.id == groceryID })?.expenseID != nil { throw LedgerError.invalidExpense }
             let paidFrom: UUID
             if cash {
-                if let wallet = ledger.accounts.first(where: { $0.isCash == true && ($0.id == cashAccount || cashAccount == nil) }) { paidFrom = wallet.id }
+                if let wallet = ledger.activeAccounts.first(where: { $0.isCash == true && ($0.id == cashAccount || cashAccount == nil) }) { paidFrom = wallet.id }
                 else { let wallet = Account(name: "Cash wallet", available: 0, isCash: true); ledger.accounts.append(wallet); paidFrom = wallet.id }
             } else { guard let account else { throw LedgerError.invalidExpense }; paidFrom = account }
             var reviewedReceipt = receipt; reviewedReceipt.merchant = merchant; reviewedReceipt.total = cents; reviewedReceipt.date = date

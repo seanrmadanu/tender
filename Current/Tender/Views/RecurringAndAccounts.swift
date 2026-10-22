@@ -4,17 +4,34 @@ struct RecurringList: View {
     @Environment(LedgerStore.self) private var store
     @State private var edit: RecurringBill?
     @State private var suggestion: SubscriptionSuggestion?
+    private var suggestions: [SubscriptionSuggestion] { store.ledger.subscriptionSuggestions }
     var body: some View {
         SectionHeading(title: "Know what’s coming.", subtitle: "Subscriptions, bills, and the little renewals.")
         PaperCard { AmountRow(label: "Monthly equivalent", amount: store.ledger.recurring.reduce(0) { $0 + $1.monthlyEquivalent }); AmountRow(label: "Reserved for next 30 days", amount: store.ledger.upcomingReserve()) }
-        if !store.ledger.subscriptionSuggestions.isEmpty {
-            SectionHeading(title: "Possible subscriptions", subtitle: "Repeated bank purchases · review before adding")
-            ForEach(store.ledger.subscriptionSuggestions) { candidate in
+        PaperCard {
+            HStack {
+                Text("Find recurring payments").font(.headline)
+                Spacer()
+                Button { Task { await store.refreshBank(force: true) } } label: { Image(systemName: "arrow.clockwise").frame(width: 44, height: 44) }
+                    .disabled(store.bankUpdating).accessibilityLabel("Refresh bank history")
+            }
+            if store.bankUpdating { ProgressView("Checking bank history…") }
+            if let message = store.bankMessage { Text(message).font(.caption).foregroundStyle(Ink.warning) }
+            if (store.ledger.bankActivity ?? []).flatMap(\.transactions).isEmpty {
+                Text("No bank transactions are available yet. Balances alone cannot reveal subscriptions. You can add a payment manually or use recorded expenses.").font(.subheadline)
+            }
+            Text("Suggestions need at least two similarly priced weekly, monthly or yearly charges from the same merchant and account. Review each suggestion before adding it.").font(.caption).foregroundStyle(Ink.muted)
+            if suggestions.isEmpty { Text("No repeated-payment matches yet.").font(.caption) }
+            NavigationLink("Review bank purchases") { BankActivityView() }
+        }
+        if !suggestions.isEmpty {
+            SectionHeading(title: "Possible subscriptions", subtitle: "Bank and recorded purchases · review before adding")
+            ForEach(suggestions) { candidate in
                 Button { suggestion = candidate } label: {
-                    HStack { VStack(alignment: .leading) { Text(candidate.merchant); Text("\(candidate.occurrences) similar charges · \(candidate.cycle.rawValue)").font(.caption) }; Spacer(); Text(Money.format(candidate.amount)) }
+                    HStack { VStack(alignment: .leading) { Text(candidate.merchant); Text("\(candidate.occurrences) similar charges · \(candidate.cycle.rawValue)\(candidate.occurrences == 2 ? " · Early hint" : "")").font(.caption) }; Spacer(); Text(Money.format(candidate.amount)) }
                 }.frame(minHeight: 48)
             }
-            Text("Suggestions require at least three similar charges. They may be regular purchases rather than subscriptions. No recurring-data add-on is requested.").font(.footnote)
+            Text("Two charges are an early hint, not a confirmed subscription. Regular purchases can look recurring; confirm the merchant and schedule before saving.").font(.footnote)
         }
         if store.ledger.recurring.isEmpty { EmptyNote(symbol: "repeat", title: "No surprises.", message: "Add a recurring payment to see upcoming costs and request a reminder.") }
         ForEach(store.ledger.recurring.sorted { $0.nextDue < $1.nextDue }) { bill in
@@ -43,25 +60,31 @@ struct RecurringForm: View {
     @State private var remind = false
     @State private var account: UUID?
     @State private var delete = false
-    private var valid: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && (Money.cents(amount) ?? 0) > 0 && category != nil }
+    @State private var initialized = false
+    @State private var saving = false
+    private var valid: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && (Money.cents(amount) ?? 0) > 0 && !saving }
     var body: some View {
         Form {
-            Section("Payment") { TenderField("Name", text: $name); TenderField("Amount (USD)", text: $amount).keyboardType(.decimalPad); Picker("Category", selection: $category) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }; Picker("Repeats", selection: $cycle) { ForEach(BillingCycle.allCases, id: \.self) { Text($0.rawValue).tag($0) } }; DatePicker("Next due", selection: $due, displayedComponents: .date) }
+            Section("Payment") { TenderField("Name", text: $name); TenderField("Amount (USD)", text: $amount).keyboardType(.decimalPad); Picker("Category", selection: $category) { Text("Uncategorized").tag(UUID?.none); ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }; Picker("Repeats", selection: $cycle) { ForEach(BillingCycle.allCases, id: \.self) { Text($0.rawValue).tag($0) } }; DatePicker("Next due", selection: $due, displayedComponents: .date) }
             Section { Toggle("Remind me one day before at 9 AM", isOn: $remind) } footer: { Text("Tender asks for notification access when you save a reminder. Due dates within one day may be too close for a reminder.") }
             if existing != nil {
                 Section("Record payment") {
-                    Picker("Paid from", selection: $account) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.accounts) { Text($0.name).tag(Optional($0.id)) } }
+                    Picker("Paid from", selection: $account) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.activeAccounts) { Text($0.name).tag(Optional($0.id)) } }
                     Button("Mark Paid & Advance Due Date") { Task { await save(paid: true) } }.disabled(!valid || account == nil)
+                    Text("If this payment is already in Activity, do not record it again. Move Next due forward and Save instead. Bank-linked payments do not deduct the saved balance again.").font(.caption)
                 }
                 Section { Button("Delete Recurring Payment", role: .destructive) { delete = true } }
             }
         }.paperForm().navigationTitle(existing == nil ? "New Recurring Payment" : "Recurring Payment").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save") { Task { await save(paid: false) } }.disabled(!valid) } }
-            .onAppear { account = store.ledger.accounts.first?.id; category = store.ledger.categories.last?.id; if let candidate = suggestion { name = candidate.merchant; amount = Money.input(candidate.amount); due = candidate.nextDue; cycle = candidate.cycle }; if let e = existing { name = e.name; amount = Money.input(e.amount); category = e.categoryID; due = e.nextDue; cycle = e.cycle; remind = e.remind } }
+            .onAppear { guard !initialized else { return }; initialized = true; account = store.ledger.activeAccounts.first?.id; category = store.ledger.categories.last?.id; if let candidate = suggestion { name = candidate.merchant; amount = Money.input(candidate.amount); due = candidate.nextDue; cycle = candidate.cycle }; if let e = existing { name = e.name; amount = Money.input(e.amount); category = e.categoryID; due = e.nextDue; cycle = e.cycle; remind = e.remind } }
             .confirmationDialog("Delete this recurring payment?", isPresented: $delete, titleVisibility: .visible) { Button("Delete", role: .destructive) { if store.update({ $0.recurring.removeAll { $0.id == existing?.id } }) { Task { await store.refreshReminders() }; dismiss() } } }
     }
     private func save(paid: Bool) async {
-        guard let cents = Money.cents(amount), let category else { return }
+        guard valid, let cents = Money.cents(amount) else { return }
+        saving = true; defer { saving = false }
+        let fallbackID = store.ledger.categories.first(where: { $0.name == "Uncategorized" })?.id ?? UUID()
+        let category = category ?? fallbackID
         var bill = RecurringBill(name: name, amount: cents, categoryID: category, nextDue: due, cycle: cycle, remind: remind)
         if let existing {
             bill.id = existing.id
@@ -71,7 +94,10 @@ struct RecurringForm: View {
         if remind { guard await store.enableReminders() else { return } }
         if paid { bill.nextDue = bill.advanced() }
         let result = store.update { ledger in
-            if paid, let account { try ledger.record(Expense(merchant: name, amount: cents, categoryID: category, accountID: account, note: "Recurring payment")) }
+            if !ledger.categories.contains(where: { $0.id == category }) {
+                ledger.categories.append(BudgetCategory(id: category, name: "Uncategorized", symbol: "tag", limit: 0))
+            }
+            if paid, let account { try ledger.record(Expense(merchant: name, amount: cents, categoryID: category, accountID: account, note: "Recurring payment"), deductFromBalance: ledger.accounts.first(where: { $0.id == account })?.bankAccountKey == nil) }
             if let i = ledger.recurring.firstIndex(where: { $0.id == bill.id }) { ledger.recurring[i] = bill } else { ledger.recurring.append(bill) }
         }
         if result { await store.refreshReminders(); dismiss() }
@@ -88,16 +114,29 @@ struct AccountForm: View {
             } header: { Text("No bank connection needed") } footer: {
                 Text("Use any nickname, like Chase, Capital One, or Cash. No account number, bank login, or Plaid account is required. Manual records stay on this device unless you export or back them up.")
             }
-            Section("Your accounts (\(store.ledger.accounts.count))") {
-                if !store.ledger.accounts.isEmpty { LabeledContent("Total available", value: Money.format(store.ledger.available)) }
-                if store.ledger.accounts.isEmpty { Text("Add an account to start tracking purchases.").foregroundStyle(.secondary) }
-                ForEach(store.ledger.accounts) { account in
+            Section("Your accounts (\(store.ledger.activeAccounts.count))") {
+                if !store.ledger.activeAccounts.isEmpty { LabeledContent("Total available", value: Money.format(store.ledger.available)) }
+                if store.ledger.activeAccounts.isEmpty { Text("Add an account to start tracking purchases.").foregroundStyle(.secondary) }
+                ForEach(store.ledger.activeAccounts) { account in
                     NavigationLink { AccountDetailView(accountID: account.id) } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack { Text(account.name); Spacer(); Text(Money.format(account.available)).monospacedDigit() }
                             Label(account.bankAccountKey == nil ? "Manual account" : "Connected through Plaid", systemImage: account.bankAccountKey == nil ? "pencil" : "link").font(.caption).foregroundStyle(.secondary)
                         }.padding(.vertical, 4)
                     }.accessibilityIdentifier("account-\(account.name)")
+                }
+            }
+            if store.ledger.accounts.contains(where: { $0.isArchived == true }) {
+                Section("Removed cards · history retained") {
+                    ForEach(store.ledger.accounts.filter { $0.isArchived == true }) { account in
+                        HStack {
+                            NavigationLink(account.name) { AccountDetailView(accountID: account.id) }
+                            Button("Restore") { _ = store.update { ledger in
+                                if let i = ledger.accounts.firstIndex(where: { $0.id == account.id }) { ledger.accounts[i].isArchived = false }
+                            } }.buttonStyle(.borderless)
+                        }
+                    }
+                    Text("Restored cards use their saved ledger balance. Review the balance before recording purchases.").font(.caption)
                 }
             }
             Section {
@@ -157,9 +196,9 @@ struct AccountDetailView: View {
                     Text(account.bankAccountKey == nil ? "Manual account · no bank connection" : "Connected account · reviewed balance snapshot").font(.caption).foregroundStyle(.secondary)
                     Text("Updated \(account.updated.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary)
                 }
-                Section {
+                if account.isArchived != true { Section {
                     NavigationLink("Update Balance") { ManualAccountForm(existing: account) }
-                }
+                } }
                 Section("Purchases (\(purchases.count))") {
                     if purchases.isEmpty { Text("Your purchases for this account will appear here.").foregroundStyle(.secondary) }
                     ForEach(purchases) { expense in
@@ -168,7 +207,7 @@ struct AccountDetailView: View {
                 }
             }
         }.paperForm().navigationTitle(account?.name ?? "Account").navigationBarTitleDisplayMode(.inline)
-            .bottomAdd("Add Purchase") { addPurchase = true }
+            .bottomAdd("Add Purchase", enabled: account != nil && account?.isArchived != true) { addPurchase = true }
             .sheet(isPresented: $addPurchase) { NavigationStack { ExpenseForm(initialAccount: accountID) } }
             .sheet(item: $selectedExpense) { expense in NavigationStack { ExpenseDetail(expense: expense) } }
     }

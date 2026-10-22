@@ -5,28 +5,56 @@ struct BudgetView: View {
     @Environment(LedgerStore.self) private var store
     @State private var editing: BudgetCategory?
     @State private var adding = false
+    @State private var selecting = false
+    @State private var selected = Set<UUID>()
+    @State private var deleting = false
     var body: some View {
         PaperScreen {
             SectionHeading(title: "Give your money a purpose.", subtitle: "Monthly envelopes · \(Date().formatted(.dateTime.month(.wide)))")
             PaperCard { AmountRow(label: "Total monthly allocation", amount: store.ledger.monthlyBudget); AmountRow(label: "Remaining this month", amount: store.ledger.monthlyBudget - store.ledger.spent(in: store.ledger.month())) }
             ForEach(store.ledger.categories) { category in
-                Button { editing = category } label: {
+                Button {
+                    if selecting {
+                        if selected.contains(category.id) { selected.remove(category.id) } else { selected.insert(category.id) }
+                    } else { editing = category }
+                } label: {
                     PaperCard {
-                        HStack { CategoryIcon(symbol: category.symbol); Text(category.name).font(.headline); Spacer(); Image(systemName: "pencil").font(.subheadline) }
+                        HStack { CategoryIcon(symbol: category.symbol); Text(category.name).font(.headline); Spacer(); Image(systemName: selecting ? (selected.contains(category.id) ? "checkmark.circle.fill" : "circle") : "pencil").font(.title3) }
                         AmountRow(label: "Remaining", amount: store.ledger.remaining(category))
                         BudgetMeter(spent: store.ledger.spent(category: category.id, in: store.ledger.month()), limit: category.limit)
                         Text("\(Money.format(store.ledger.spent(category: category.id, in: store.ledger.month()))) spent / \(Money.format(category.limit)) allocated").font(.caption).foregroundStyle(Ink.muted)
                     }
                 }.buttonStyle(.plain)
-                NavigationLink {
+                if !selecting { NavigationLink {
                     CategoryReviewView(categoryID: category.id, interval: store.ledger.month())
                 } label: {
                     Label("Review \(category.name) expenses & bills", systemImage: "receipt").font(.subheadline).frame(minHeight: 44)
-                }
+                } }
             }
             Text("Budgets reset by calendar month. Unspent allocations don’t roll over. Adding an expense always uses your chosen category.").font(.footnote).foregroundStyle(Ink.muted)
         }.navigationTitle("Budgets")
-            .bottomAdd("Add category") { adding = true }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) {
+                Button(selecting ? "Done" : "Edit") { selecting.toggle(); selected.removeAll() }
+            } }
+            .safeAreaInset(edge: .bottom) {
+                if selecting {
+                    HStack {
+                        Text("\(selected.count) selected").font(.subheadline)
+                        Spacer()
+                        Button("Edit", systemImage: "pencil") {
+                            editing = store.ledger.categories.first { selected.contains($0.id) }
+                        }.disabled(selected.count != 1)
+                        Button("Delete", systemImage: "trash", role: .destructive) { deleting = true }.disabled(selected.isEmpty)
+                    }.padding().background(Ink.paper)
+                } else {
+                    HStack { Spacer(); Button("Add category", systemImage: "plus") { adding = true }.buttonStyle(.borderedProminent) }.padding()
+                }
+            }
+            .confirmationDialog("Delete \(selected.count) categories?", isPresented: $deleting, titleVisibility: .visible) {
+                Button("Delete Categories", role: .destructive) {
+                    if store.update({ $0.removeCategories(selected) }) { selected.removeAll(); selecting = false }
+                }
+            } message: { Text("Purchases and recurring payments are kept under Uncategorized. Only the selected budgets are removed.") }
             .sheet(item: $editing) { category in NavigationStack { CategoryForm(category: category) } }
             .sheet(isPresented: $adding) { NavigationStack { CategoryForm(category: nil) } }
     }

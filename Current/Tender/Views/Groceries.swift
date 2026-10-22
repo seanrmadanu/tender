@@ -12,18 +12,31 @@ struct GroceryView: View {
     private var estimate: Int64 { items.filter { $0.purchasedAt == nil }.reduce(0) { $0 + ($1.estimatedUnitPrice ?? 0) * Int64($1.quantity) } }
     var body: some View {
         PaperScreen {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Groceries").font(.largeTitle.bold())
+                Spacer()
+                VStack(alignment: .trailing) {
+                    Text(Money.format(estimate)).font(.headline).monospacedDigit()
+                    Text("Planned total").font(.caption).foregroundStyle(Ink.muted)
+                }
+            }
             HStack {
                 Button { changeDay(-1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }.accessibilityLabel("Previous day")
-                DatePicker("Shopping date", selection: $selectedDate, displayedComponents: .date).labelsHidden()
+                Spacer()
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    VStack(spacing: 3) {
+                        Text(relativeDay(now: context.date)).font(.headline)
+                        Text(selectedDate.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(Ink.muted)
+                    }.frame(minHeight: 44).contentShape(Rectangle())
+                        .onTapGesture(count: 2) { selectedDate = Date() }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityHint("Double-tap the date to return to today")
+                        .accessibilityAction(named: "Return to Today") { selectedDate = Date() }
+                }
+                Spacer()
                 Button { changeDay(1) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }.accessibilityLabel("Next day")
-                Button("Today") { selectedDate = Date() }
             }
-            Text("Swipe left for previous days; right for future plans.").font(.caption).foregroundStyle(Ink.muted)
-            PaperCard {
-                SectionHeading(title: "Your shopping day", subtitle: selectedDate.formatted(date: .complete, time: .omitted))
-                AmountRow(label: "Planned basket estimate", amount: estimate)
-                Text("Prices are estimates before tax. Missing prices are excluded.").font(.caption).foregroundStyle(Ink.muted)
-            }
+            Text("Swipe left for earlier days, right for later. Double-tap the date for today.").font(.caption).foregroundStyle(Ink.muted)
             if items.isEmpty { EmptyNote(symbol: "basket", title: "Nothing planned for this day.", message: "Add an item, scan a shelf label or dictate a shopping plan.") }
             ForEach(items) { grocery in
                 Button { item = grocery } label: {
@@ -43,13 +56,20 @@ struct GroceryView: View {
                 }.buttonStyle(.plain)
             }
             Text("Plans never deduct money. Open an item and choose Record Purchase after buying it.").font(.footnote).foregroundStyle(Ink.muted)
-        }.navigationTitle("Groceries").bottomAdd("Add item") { adding = true }
+        }.navigationTitle("Groceries").navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .navigationBar).bottomAdd("Add item") { adding = true }
             .simultaneousGesture(DragGesture(minimumDistance: 60).onEnded { value in
                 guard abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
                 changeDay(value.translation.width < 0 ? -1 : 1)
             })
             .sheet(item: $item) { grocery in NavigationStack { GroceryDetail(itemID: grocery.id) } }
             .sheet(isPresented: $adding) { NavigationStack { GroceryForm(initialDate: selectedDate, onSaved: { selectedDate = $0 }) } }
+    }
+    private func relativeDay(now: Date) -> String {
+        let calendar = Calendar.current
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: selectedDate)).day ?? 0
+        if days == 0 { return "Today" }
+        if days < 0 { return "\(-days) day\(days == -1 ? "" : "s") ago" }
+        return "In \(days) day\(days == 1 ? "" : "s")"
     }
     private func changeDay(_ delta: Int) { selectedDate = Calendar.current.date(byAdding: .day, value: delta, to: selectedDate)! }
 }
@@ -68,6 +88,9 @@ struct GroceryForm: View {
     @State private var plannedAt = Date()
     @State private var remind = false
     @State private var phrase = ""
+    @State private var choosingPhoto = false
+    @State private var saving = false
+    @FocusState private var inputFocused: Bool
     @State private var speech = ShoppingSpeech()
     @State private var photo: PhotosPickerItem?
     @State private var camera = false
@@ -78,53 +101,59 @@ struct GroceryForm: View {
     @State private var initialized = false
     private var valid: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !unit.isEmpty &&
-        (price.isEmpty || (Money.cents(price) ?? 0) > 0) && !scanning &&
+        (price.isEmpty || (Money.cents(price) ?? 0) > 0) && !scanning && !saving && !speech.recording &&
         (!remind || plannedAt.addingTimeInterval(-3600) > Date())
     }
     var body: some View {
-        @Bindable var speech = speech
         Form {
-            Section("Say your plan") {
-                TenderField("Ice cream tomorrow at Costco at 5 PM", text: $phrase)
-                Button(speech.recording ? "Stop listening" : "Dictate shopping plan", systemImage: speech.recording ? "stop.circle" : "mic") {
-                    if speech.recording { speech.stop(); phrase = speech.text }
-                    else { Task { await speech.start() } }
+            Section {
+                HStack(alignment: .top) {
+                    TextField("Item name", text: $name, axis: .vertical)
+                        .lineLimit(2...3).focused($inputFocused).frame(minHeight: 48)
+                    Button {
+                        inputFocused = false; speech.stop()
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true } else { choosingPhoto = true }
+                    } label: { Image(systemName: "text.viewfinder").frame(width: 44, height: 44) }
+                        .buttonStyle(.borderless).accessibilityLabel("Scan price label")
+                        .contextMenu { Button("Choose label photo", systemImage: "photo") { inputFocused = false; choosingPhoto = true } }
+                        .disabled(scanning || speech.recording)
+                    Button {
+                        inputFocused = false
+                        if speech.recording { speech.stop(); interpret() }
+                        else { Task { await speech.start(appendingTo: phrase.isEmpty ? name : phrase) } }
+                    } label: { Image(systemName: speech.recording ? "stop.circle.fill" : "mic").frame(width: 44, height: 44) }
+                        .buttonStyle(.borderless).accessibilityLabel(speech.recording ? "Stop dictation" : "Dictate item or shopping plan").disabled(scanning)
                 }
-                if speech.recording { Text(speech.text).font(.subheadline) }
-                if let message = speech.message { Text(message).font(.footnote).foregroundStyle(Ink.warning) }
-                Button("Fill Details for Review") { interpret() }.disabled(phrase.isEmpty && speech.text.isEmpty)
-            }
-            Section("Scan shelf label") {
-                PhotosPicker(selection: $photo, matching: .images) { Label("Choose label photo", systemImage: "photo") }
-                if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Scan price label", systemImage: "camera") { camera = true } }
-                if scanning { ProgressView("Reading label on device…") }
-                if let message { Text(message).font(.footnote).foregroundStyle(Ink.warning) }
-            }
-            Section("Review item") {
-                TenderField("Item name", text: $name)
-                Stepper("Quantity: \(quantity)", value: $quantity, in: 1...99)
+                HStack {
+                    Text("$")
+                    TextField("Price (optional)", text: $price).keyboardType(.decimalPad).focused($inputFocused)
+                    Picker("Quantity", selection: $quantity) { ForEach(1...99, id: \.self) { Text("\($0)").tag($0) } }
+                        .pickerStyle(.menu).fixedSize().accessibilityLabel("Quantity")
+                }
                 TenderField("Unit or package size", text: $unit)
-                TenderField("Price per unit (USD, optional)", text: $price).keyboardType(.decimalPad)
                 TenderField("Store (optional)", text: $shop)
-            }
-            Section("Shopping plan") {
                 DatePicker("When", selection: $plannedAt)
                 Toggle("Remind me one hour before", isOn: $remind)
-                if remind {
-                    Text("Reminder: \(plannedAt.addingTimeInterval(-3600).formatted(date: .abbreviated, time: .shortened))").font(.footnote)
-                    if plannedAt.addingTimeInterval(-3600) <= Date() { Text("Choose a time more than an hour ahead, or turn the reminder off.").foregroundStyle(Ink.warning) }
+                if remind && plannedAt.addingTimeInterval(-3600) <= Date() {
+                    Text("Choose a time more than an hour ahead, or turn the reminder off.").font(.caption).foregroundStyle(Ink.warning)
                 }
-            }
-            Section {
+                if speech.recording { Label("Listening… pause whenever you need. Tap stop when finished.", systemImage: "waveform").font(.caption) }
+                if let message = speech.message { Text(message).font(.caption).foregroundStyle(Ink.warning) }
+                if scanning { ProgressView("Reading label…") }
+                if let message { Text(message).font(.caption).foregroundStyle(Ink.warning) }
                 Button("Record Purchase") { Task { await save(purchase: true) } }.disabled(!valid || (Money.cents(price) ?? 0) <= 0)
-                Text("Record Purchase opens an expense for your review. Add to Cart only saves a plan. Review scanned and spoken details before either action.").font(.footnote)
-            }
-        }.paperForm().navigationTitle("Shopping Item")
+            } footer: { Text("Add to Cart saves a plan. Record Purchase opens an expense to confirm.") }
+        }.paperForm().navigationTitle("Shopping Item").navigationBarTitleDisplayMode(.inline)
             .bottomAdd("Add to Cart", enabled: valid) { Task { await save(purchase: false) } }
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { inputFocused = false; UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) } }
+            }
+            .photosPicker(isPresented: $choosingPhoto, selection: $photo, matching: .images)
             .onAppear { guard !initialized else { return }; initialized = true; name = initialName; price = initialPrice; plannedAt = initialDate }
             .onDisappear { speech.stop() }
-            .onChange(of: speech.text) { _, text in phrase = text }
+            .onChange(of: speech.text) { _, text in phrase = text; if !text.isEmpty { name = ShoppingPlanParser.parse(text).item } }
+            .onChange(of: speech.recording) { wasRecording, recording in if wasRecording && !recording { interpret() } }
             .onChange(of: photo) { _, item in Task { do { if let data = try await item?.loadTransferable(type: Data.self) { await scan(data) } } catch { message = "Could not load photo." } } }
             .sheet(isPresented: $camera) { CameraPicker { data in Task { await scan(data) } } }
             .sheet(item: $recordedItem, onDismiss: { dismiss() }) { item in
@@ -132,14 +161,21 @@ struct GroceryForm: View {
             }
     }
     private func interpret() {
-        speech.stop()
-        let draft = ShoppingPlanParser.parse(phrase.isEmpty ? speech.text : phrase)
-        name = draft.item; shop = draft.store; plannedAt = draft.date; remind = draft.hasExplicitTime && draft.date.addingTimeInterval(-3600) > Date()
-        message = draft.hasExplicitTime ? "Review the item, store and time below before saving." : "A precise time was not recognized. Choose the shopping time below."
+        if !speech.text.isEmpty { phrase = speech.text }
+        guard !phrase.isEmpty else { return }
+        let draft = ShoppingPlanParser.parse(phrase)
+        name = draft.item
+        if !draft.store.isEmpty { shop = draft.store }
+        if draft.hasExplicitDate { plannedAt = draft.date }
+        else if draft.hasExplicitTime {
+            let calendar = Calendar.current
+            plannedAt = calendar.date(bySettingHour: calendar.component(.hour, from: draft.date), minute: calendar.component(.minute, from: draft.date), second: 0, of: plannedAt) ?? plannedAt
+        }
+        if draft.hasExplicitTime { remind = plannedAt.addingTimeInterval(-3600) > Date() }
     }
     private func scan(_ data: Data) async {
         guard let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85), jpeg.count <= 20_000_000 else { message = "Choose a photo under 20 MB."; return }
-        scanning = true; defer { scanning = false }; imageData = jpeg
+        scanning = true; defer { scanning = false }; imageData = jpeg; price = ""; name = ""; unit = "each"
         do {
             let label = ShelfLabelParser.parse(try await ReceiptOCR.read(jpeg))
             if let value = label.name { name = value }
@@ -150,6 +186,8 @@ struct GroceryForm: View {
     }
     private func save(purchase: Bool) async {
         guard valid else { message = "Enter an item, a valid optional price, and a future reminder time."; return }
+        saving = true; inputFocused = false
+        defer { saving = false }
         if remind && !purchase { guard await store.enableReminders() else { return } }
         var file: String?
         do { if let imageData, Money.cents(price) != nil { file = try store.attach(imageData, extension: "jpg") } }

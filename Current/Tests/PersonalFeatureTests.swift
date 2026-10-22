@@ -79,14 +79,14 @@ final class PersonalFeatureTests: XCTestCase {
         XCTAssertTrue(draft.hasExplicitTime)
         XCTAssertFalse(ShoppingPlanParser.parse("I want apples tomorrow", now: now, calendar: calendar).hasExplicitTime)
     }
-    func testSubscriptionsRequireThreeRegularSimilarCharges() throws {
+    func testSubscriptionsOfferTentativeTwoChargeMatches() throws {
         var ledger = ledger()
         let values = [transaction("jan", date: "2026-01-10"), transaction("feb", date: "2026-02-10"), transaction("mar", date: "2026-03-10")]
         try ledger.receiveBankActivity([BankActivityItem(id: "bank", checkedAt: Date(), transactions: values)])
         XCTAssertEqual(ledger.subscriptionSuggestions.count, 1)
         XCTAssertEqual(ledger.subscriptionSuggestions.first?.cycle, .monthly)
         try ledger.receiveBankActivity([BankActivityItem(id: "bank", checkedAt: Date(), transactions: Array(values.prefix(2)))])
-        XCTAssertTrue(ledger.subscriptionSuggestions.isEmpty)
+        XCTAssertEqual(ledger.subscriptionSuggestions.first?.occurrences, 2)
     }
     func testRestoredBankCanBeReauthorizedWithoutDuplicateAccount() throws {
         var ledger = ledger(); let id = ledger.accounts[0].id

@@ -49,6 +49,10 @@ struct OverviewView: View {
     @Environment(LedgerStore.self) private var store
     @Binding var sheet: SheetRoute?
     private var ledger: Ledger { store.ledger }
+    @State private var selectedCard: UUID?
+    @State private var editingCards = false
+    @State private var removingCard: Account?
+    @Environment(\.dynamicTypeSize) private var textSize
     var body: some View {
         PaperScreen {
             VStack(alignment: .leading, spacing: 4) {
@@ -56,7 +60,12 @@ struct OverviewView: View {
                 Text("A little more intentional.").font(.system(.title2, design: .serif))
             }
             if ledger.isDemo { Label("Sample ledger · not connected to a bank", systemImage: "sparkle").font(.caption).foregroundStyle(Ink.muted) }
-            if ledger.accounts.isEmpty {
+            HStack {
+                Text("Accounts").font(.headline)
+                Spacer()
+                Button(editingCards ? "Done" : "Edit") { editingCards.toggle() }.disabled(ledger.activeAccounts.isEmpty)
+            }
+            if ledger.activeAccounts.isEmpty {
                 VStack(alignment: .leading, spacing: 20) {
                     Label("YOUR ACCOUNTS", systemImage: "wallet.bifold").font(.system(.caption, design: .monospaced)).tracking(1.5)
                     Text("Your wallet starts here.").font(.system(.title, design: .serif))
@@ -64,17 +73,45 @@ struct OverviewView: View {
                     Button { sheet = .account } label: { Label("Add your first account", systemImage: "plus.circle").frame(minHeight: 44) }
                         .buttonStyle(.plain)
                 }.banknoteCard()
+            } else if editingCards {
+                VStack(spacing: textSize.isAccessibilitySize ? 12 : -30) {
+                    ForEach(ledger.activeAccounts) { account in
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(account.name).font(.headline)
+                                Text(Money.format(account.available)).font(.subheadline).monospacedDigit()
+                            }
+                            Spacer()
+                            Button(role: .destructive) { removingCard = account } label: {
+                                Image(systemName: "trash").frame(width: 44, height: 44)
+                            }.accessibilityLabel("Remove \(account.name) from wallet")
+                        }.padding(.bottom, textSize.isAccessibilitySize ? 0 : 30).banknoteCard()
+                    }
+                }
+                Text("Removing a card keeps its purchases. Restore it in Settings → Accounts.").font(.caption).foregroundStyle(Ink.muted)
             } else {
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 0) {
-                        ForEach(ledger.accounts) { account in
+                        ForEach(ledger.activeAccounts) { account in
                             NavigationLink { AccountDetailView(accountID: account.id) } label: {
                                 WalletAccountCard(account: account).padding(.horizontal, 3)
-                            }.buttonStyle(.plain).containerRelativeFrame(.horizontal)
+                            }.buttonStyle(.plain).containerRelativeFrame(.horizontal).id(account.id)
                         }
                     }.scrollTargetLayout()
-                }.scrollTargetBehavior(.paging).scrollIndicators(.hidden)
-                Text(ledger.accounts.count > 1 ? "Swipe between your \(ledger.accounts.count) accounts. Tap a card for details." : "Tap your account for purchases and balance details.").font(.caption).foregroundStyle(Ink.muted)
+                }.scrollTargetBehavior(.paging).scrollIndicators(.hidden).scrollPosition(id: $selectedCard)
+                ScrollView(.horizontal) {
+                    HStack(spacing: 0) {
+                        ForEach(ledger.activeAccounts) { account in
+                            Button { selectedCard = account.id } label: {
+                                Circle().fill((selectedCard ?? ledger.activeAccounts.first?.id) == account.id ? Ink.green : Ink.muted.opacity(0.35))
+                                    .frame(width: 7, height: 7).frame(width: 44, height: 44)
+                            }.accessibilityLabel("Show \(account.name)")
+                                .accessibilityAddTraits((selectedCard ?? ledger.activeAccounts.first?.id) == account.id ? .isSelected : [])
+                        }
+                    }.frame(minWidth: 0)
+                }.scrollIndicators(.hidden).defaultScrollAnchor(.center).frame(height: 44)
+                    .frame(maxWidth: .infinity)
+                Text("\(ledger.activeAccounts.count) accounts · Swipe or tap a dot to switch.").font(.caption).foregroundStyle(Ink.muted)
             }
             if store.bankUpdating { ProgressView("Checking bank information…") }
             if let message = store.bankMessage { Text(message).font(.caption).foregroundStyle(Ink.warning) }
@@ -111,6 +148,17 @@ struct OverviewView: View {
             }
         }
         .navigationTitle("tender").navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Remove card from wallet?", isPresented: Binding(get: { removingCard != nil }, set: { if !$0 { removingCard = nil } }), titleVisibility: .visible) {
+            if let account = removingCard {
+                Button("Remove \(account.name)", role: .destructive) {
+                    if store.update({ $0.archiveAccount(account.id) }) {
+                        selectedCard = store.ledger.activeAccounts.first?.id
+                        if store.ledger.activeAccounts.isEmpty { editingCards = false }
+                    }
+                    removingCard = nil
+                }
+            }
+        } message: { Text("Purchases and receipts stay in Activity. This card stops contributing to available cash. Bank connection access is managed separately in Settings.") }
         .bottomAdd("Record Purchase") { sheet = .expense }
         .refreshable { await store.refreshBank(force: true) }
         .toolbar { ToolbarItem(placement: .topBarLeading) { Image(systemName: "seal").foregroundStyle(Ink.green) }; ToolbarItem(placement: .topBarTrailing) { Text(Date().formatted(.dateTime.month(.abbreviated).day())).font(.system(.caption, design: .monospaced)).foregroundStyle(Ink.muted) } }
