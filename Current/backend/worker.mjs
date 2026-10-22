@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
-import { createBridge, encrypt, decrypt } from './bridge.mjs';
+import { createBridge } from './bridge.mjs';
+import { vaultStorage } from './vault-storage.mjs';
 import { configFromEnv } from './config.mjs';
 
 // One personal vault per environment. SQLite-backed Durable Object storage is
@@ -8,13 +9,7 @@ export class BankVault {
   constructor(ctx, env) {
     this.ready = ctx.blockConcurrencyWhile(async () => {
       const config = configFromEnv(env);
-      this.handler = await createBridge(config, {
-        async load() {
-          const sealed = await ctx.storage.get('vault');
-          return sealed ? decrypt(sealed, config.key) : null;
-        },
-        async save(state) { await ctx.storage.put('vault', encrypt(state, config.key)); },
-      });
+      this.handler = await createBridge(config, vaultStorage(ctx.storage, config.key));
     });
   }
   async fetch(request) { await this.ready; return this.handler(request); }

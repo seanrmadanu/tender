@@ -455,3 +455,49 @@ Packaging Tender-ChatGPT-Handoff.zip from active source and handoff documents;
 excludes archives, builds, dependency caches, credentials and financial data.
 Integrity manifest and archive verification accompany packaging. Original app,
 private configuration and bank state remain in place; no commits or pushes made.
+
+
+[2026-10-21] PERSONAL FEATURE IMPLEMENTATION — v4 testing source
+
+Authorization: user asked this chat to implement the 18 requests, then chose
+personal testing first and confirmed friends should use real bank accounts
+later. Multiuser authentication/isolation/distribution are deferred.
+
+Added:
+- BankActivity.swift: separate bank history, explicit purchase import/matching,
+  source correction handling, recurrence suggestions.
+- ReceiptParsing.swift: structured receipt and shelf-label parsing in cents.
+- ShoppingPlan.swift and ShoppingSpeech.swift: reviewable spoken/typed plans.
+- BankActivity view/review screens; per-account wallet cards; dated groceries.
+- Cash-wallet model; linked plan/purchase state; original receipt image retention.
+- Foreground automatic bank checks with stale/cached/error state.
+- Categorized Settings, simpler complete backups, backup-first data deletion.
+- transactions.mjs: paginated sync, stable IDs, modifications/removals,
+  pending-to-posted replacement, bounded mutation restart, failure retention.
+- vault-storage.mjs: encrypted chunk storage with transactional legacy migration.
+- Safe current/legacy Hosted Link diagnostic fields and wrong-session protection.
+- Expanded field targets and lower-right primary Add actions.
+
+Corrected/preserved:
+- Old automatic legacy reset retired; existing ledgers are preserved.
+- Imports never automatically deduct a bank balance or double-count receipts.
+- Automatic balance reads do not overwrite locally adjusted ledger balances.
+- Restore pauses bank updates and supports matching reauthorized accounts.
+- Disconnect retains local history; explicit wipe removes bank records and
+  local recovery copies. Remote deletion failure does not trigger local wipe.
+- Test flags isolate Keychain and disable automatic bank network calls.
+- Existing private configuration, production vault identity and keys unchanged.
+
+Verification: 29 Node backend tests passed, mocked Plaid only (output bundled).
+29 Swift core tests supplied (11 added), 8 UI tests updated; neither suite run.
+Swift/Xcode unavailable. npm ci failed HTTP 403, so Cloudflare runtime test
+could not run. No iPhone launch/render, live bank import, microphone/camera,
+notification, or iCloud roundtrip verified. No deployment or live deletion.
+
+Capital One: diagnostic support implemented; root cause/fix unconfirmed.
+Sign-in and multiuser storage deferred. Native iCloud container deferred;
+Files-based complete backup remains available. See docs/feature-status.md
+and docs/personal-test-guide.md for precise implemented scope and limits.
+
+[2026-10-21] Local V3 import checkpoint
+Merged Archives/V3/Tender-ChatGPT-Handoff.zip (incoming v4 personal source) into Current after verifying the manifest. Pre-import Git checkpoint: 354b23463c4883b58b0fd3f253ffa6325e3cbcd3 on codex/integrate-v3-2026-10-21; source backup: Archives/snapshots/2026-10-21-before-v3-import.zip. Preserved private configuration, signing and deployment settings. Incorporated reviewed fixes from the separately supplied Merged copy: distinct BankActivityView filename, valid Section header/footer initializer, unambiguous button accessibility identifiers and stronger UI-test selectors/assertions. Current simulator build passed; core 29/29 and backend 30/30 passed. UI verification and the expanded 18-item audit follow in a separate change. No deployment or GitHub push.

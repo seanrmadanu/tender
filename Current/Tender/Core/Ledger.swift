@@ -14,7 +14,7 @@ public enum Money {
         formatter.locale = Locale(identifier: "en_US")
         return formatter.string(from: NSDecimalNumber(value: cents).dividing(by: 100)) ?? "$0.00"
     }
-    public static func input(_ cents: Int64) -> String { String(format: "%.2f", Double(cents) / 100) }
+    public static func input(_ cents: Int64) -> String { (cents < 0 ? "-" : "") + String(cents.magnitude / 100) + "." + String(format: "%02d", Int(cents.magnitude % 100)) }
 }
 
 public struct BudgetCategory: Identifiable, Codable, Equatable, Sendable {
@@ -33,6 +33,8 @@ public struct Account: Identifiable, Codable, Equatable, Sendable {
     public var snapshotAt: Date? = nil
     public var balanceRevision: UUID? = nil
     public var bankAccountKey: String? = nil
+    public var isCash: Bool? = nil
+    public var needsReconnection: Bool? = nil
 }
 public struct Expense: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID = UUID()
@@ -45,6 +47,9 @@ public struct Expense: Identifiable, Codable, Equatable, Sendable {
     public var attachment: String? = nil
     public var balanceAppliedAt: Date? = nil
     public var balanceRevision: UUID? = nil
+    public var receipt: ReceiptDetails? = nil
+    public var bankTransactionID: String? = nil
+    public var importedFromBank: Bool? = nil
 }
 public enum BillingCycle: String, Codable, CaseIterable, Sendable { case monthly = "Monthly", yearly = "Yearly", weekly = "Weekly" }
 public struct RecurringBill: Identifiable, Codable, Equatable, Sendable {
@@ -85,6 +90,11 @@ public struct GroceryItem: Identifiable, Codable, Equatable, Sendable {
     public var unit: String = "each"
     public var checked: Bool = false
     public var observations: [PriceObservation] = []
+    public var plannedAt: Date? = nil
+    public var storeName: String? = nil
+    public var remind: Bool? = nil
+    public var purchasedAt: Date? = nil
+    public var expenseID: UUID? = nil
     public var estimatedUnitPrice: Int64? {
         guard !observations.isEmpty else { return nil }
         let recent = observations.sorted { $0.date > $1.date }.prefix(5)
@@ -100,6 +110,7 @@ public struct Ledger: Codable, Equatable, Sendable {
     public var expenses: [Expense] = []
     public var recurring: [RecurringBill] = []
     public var groceries: [GroceryItem] = []
+    public var bankActivity: [BankActivityItem]? = nil
     public init() {}
     public var available: Int64 { accounts.reduce(0) { $0 + $1.available } }
     public var monthlyBudget: Int64 { categories.reduce(0) { $0 + $1.limit } }
@@ -155,6 +166,7 @@ public struct Ledger: Codable, Equatable, Sendable {
     public mutating func removeExpense(id: UUID) {
         guard let i = expenses.firstIndex(where: { $0.id == id }) else { return }
         let removed = expenses.remove(at: i)
+        for j in groceries.indices where groceries[j].expenseID == id { groceries[j].expenseID = nil; groceries[j].purchasedAt = nil; groceries[j].checked = false }
         guard removed.balanceAppliedAt != nil,
               let a = accounts.firstIndex(where: { $0.id == removed.accountID }),
               accounts[a].balanceRevision == removed.balanceRevision else { return }
@@ -175,6 +187,13 @@ public struct Ledger: Codable, Equatable, Sendable {
               Set(accounts.map(\.id)).count == accounts.count,
               Set(accounts.compactMap(\.bankAccountKey)).count == accounts.compactMap(\.bankAccountKey).count,
               Set(expenses.map(\.id)).count == expenses.count,
+              Set(expenses.compactMap(\.bankTransactionID)).count == expenses.compactMap(\.bankTransactionID).count,
+              (bankActivity ?? []).count <= 100,
+              Set((bankActivity ?? []).map(\.id)).count == (bankActivity ?? []).count,
+              (bankActivity ?? []).flatMap(\.transactions).count <= 100_000,
+              Set((bankActivity ?? []).flatMap(\.transactions).map(\.id)).count == (bankActivity ?? []).flatMap(\.transactions).count,
+              expenses.allSatisfy({ ($0.receipt?.items ?? []).allSatisfy { $0.quantity > 0 && $0.quantity <= 999 && $0.total > 0 && $0.total <= 99_999_999_999 } }),
+              (bankActivity ?? []).flatMap(\.transactions).allSatisfy({ $0.amountCents.magnitude <= 99_999_999_999 && $0.purchaseDate != nil }),
               Set(recurring.map(\.id)).count == recurring.count,
               Set(groceries.map(\.id)).count == groceries.count,
               categories.allSatisfy({ $0.limit >= 0 && $0.limit <= 99_999_999_999 }),

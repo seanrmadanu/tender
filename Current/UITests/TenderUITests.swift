@@ -1,171 +1,139 @@
 import XCTest
 
+// These tests use a separate documents directory and Keychain namespace.
+// Automatic bank networking is disabled for --ui-testing.
 final class TenderUITests: XCTestCase {
     var app: XCUIApplication!
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "--sample-ledger"]
-        app.launch()
-        XCTAssertTrue(app.buttons["Add expense"].waitForExistence(timeout: 15))
+        app = XCUIApplication(); app.launchArguments = ["--ui-testing"]; app.launch()
+        XCTAssertTrue(app.buttons["Record Purchase"].waitForExistence(timeout: 15))
     }
-    func capture(_ name: String) {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
-    }
-    func launchEmptyLedger() {
-        app.terminate()
-        app.launchArguments = ["--ui-testing"]
-        app.launch()
-        XCTAssertTrue(app.buttons["Add expense"].waitForExistence(timeout: 10))
-    }
-    func testFreshLedgerAndMultipleManualAccountsPersist() {
-        launchEmptyLedger()
-        XCTAssertFalse(app.staticTexts["$2,962.50"].exists)
-        XCTAssertTrue(app.buttons["Add your first account"].exists)
-        app.buttons["Add your first account"].tap()
-        for (name, amount) in [("My Checking", "100.00"), ("My Savings", "200.00")] {
-            app.buttons["add-manual-account"].tap()
-            let field = app.textFields["Account name"]
-            if !field.isHittable { app.swipeUp() }
-            field.tap(); field.typeText(name)
-            app.textFields["Available balance (USD)"].tap()
-            app.textFields["Available balance (USD)"].typeText(amount)
-            app.buttons["Add Account"].tap()
+    // Forms load rows lazily and the keyboard covers the lower screen. Scroll in short drags
+    // that stop before release: a full swipe flings past a row, and the form then unloads it.
+    private func reveal(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        _ = element.waitForExistence(timeout: 2)
+        var drags = 0
+        while !element.isHittable && drags < 15 {
+            let above = element.exists && element.frame.midY < app.frame.height * 0.25
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5))
+            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: above ? 0.62 : 0.3))
+            from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.1)
+            drags += 1
         }
-        app.navigationBars.buttons["Done"].tap()
-        XCTAssertTrue(app.buttons["Manage 2 accounts"].waitForExistence(timeout: 5))
-        app.terminate()
-        app.launchArguments = ["--ui-testing", "--preserve-test-ledger"]
-        app.launch()
-        XCTAssertTrue(app.buttons["Manage 2 accounts"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["$300.00"].firstMatch.exists)
-        capture("Personal accounts")
+        XCTAssertTrue(element.isHittable, "Could not scroll to \(element)", file: file, line: line)
     }
-    func testApprovedLegacyResetRunsOnceAndManualPurchaseUsesSelectedAccount() {
-        app.terminate()
-        app.launchArguments = ["--ui-testing", "--legacy-reset-test"]
-        app.launch()
-        XCTAssertTrue(app.buttons["Add your first account"].waitForExistence(timeout: 10))
-        app.buttons["Add your first account"].tap()
-        for (name, amount) in [("Chase manual", "100.00"), ("Capital One manual", "200.00")] {
-            app.buttons["add-manual-account"].tap()
-            app.textFields["Account name"].tap(); app.textFields["Account name"].typeText(name)
-            app.textFields["Available balance (USD)"].tap(); app.textFields["Available balance (USD)"].typeText(amount)
-            app.buttons["Add Account"].tap()
+    private func tap(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        reveal(element, file: file, line: line); element.tap()
+    }
+    private func enter(_ name: String, _ value: String, file: StaticString = #filePath, line: UInt = #line) {
+        let field = app.textFields[name]; tap(field, file: file, line: line); field.typeText(value)
+    }
+    // Menu items can share a name with a tab bar button, such as Groceries.
+    private func chooseCategory(_ name: String) {
+        tap(app.buttons["Category, Choose"]); tap(app.collectionViews.buttons[name])
+    }
+    private func accounts() {
+        app.tabBars.buttons["Settings"].tap()
+        // The Settings tab keeps its navigation stack, so it may still show Accounts or an account.
+        let link = app.buttons["Accounts & Cash Wallet"], list = app.navigationBars["Accounts"]
+        for _ in 0..<3 {
+            if list.exists { return }
+            if link.waitForExistence(timeout: 2) { tap(link); XCTAssertTrue(list.waitForExistence(timeout: 5)); return }
+            app.navigationBars.buttons.firstMatch.tap()
         }
-        app.buttons["account-Capital One manual"].tap()
-        app.buttons["Add Purchase"].tap()
-        app.textFields["Merchant or description"].tap(); app.textFields["Merchant or description"].typeText("My groceries")
-        app.textFields["Amount (USD)"].tap(); app.textFields["Amount (USD)"].typeText("25.00")
-        app.buttons["Category, Choose"].tap(); app.collectionViews.buttons["Groceries"].tap()
-        app.navigationBars.buttons["Save"].tap()
+        XCTFail("Could not open Accounts")
+    }
+    private func addAccount(_ name: String, _ balance: String) {
+        tap(app.buttons["Add Account"])
+        enter("Account name", name); enter("Available balance (USD)", balance)
+        // The Accounts screen behind the sheet has its own "Add Account" button.
+        tap(app.buttons["save-manual-account"])
+        XCTAssertTrue(app.navigationBars["Manual Account"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["account-\(name)"].waitForExistence(timeout: 5))
+    }
+    private func restart() {
+        app.terminate(); app.launchArguments = ["--ui-testing", "--preserve-test-ledger"]; app.launch()
+        XCTAssertTrue(app.buttons["Record Purchase"].waitForExistence(timeout: 10))
+    }
+    func testAccountsPersistSeparately() {
+        accounts(); addAccount("Checking", "100.00"); addAccount("Savings", "200.00")
+        restart(); accounts()
+        XCTAssertTrue(app.buttons["account-Checking"].exists)
+        XCTAssertTrue(app.buttons["account-Savings"].exists)
+        XCTAssertTrue(app.staticTexts["Total available, $300.00"].exists)
+    }
+    func testPurchaseUsesSelectedAccount() {
+        accounts(); addAccount("Checking", "100.00"); addAccount("Savings", "200.00")
+        tap(app.buttons["account-Savings"]); tap(app.buttons["Add Purchase"])
+        enter("Merchant or description", "Market"); enter("Amount (USD)", "25.00")
+        chooseCategory("Groceries")
+        tap(app.navigationBars.buttons["Save"])
         XCTAssertTrue(app.staticTexts["Available balance, $175.00"].waitForExistence(timeout: 5))
-        capture("Manual account purchase")
-        app.terminate()
-        app.launchArguments = ["--ui-testing", "--preserve-test-ledger"]
-        app.launch()
-        XCTAssertTrue(app.buttons["Manage 2 accounts"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["$275.00"].firstMatch.exists)
-        app.buttons["Manage 2 accounts"].tap()
-        app.buttons["account-Chase manual"].tap()
+        restart(); accounts(); tap(app.buttons["account-Checking"])
         XCTAssertTrue(app.staticTexts["Available balance, $100.00"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Purchases (0)"].exists)
     }
-    func testGroceryPricesSaveWithoutStoreAndPersist() {
-        launchEmptyLedger()
-        app.tabBars.buttons["Groceries"].tap()
-        app.buttons["Add grocery item"].tap()
-        app.textFields["Name"].tap(); app.textFields["Name"].typeText("My Apples")
-        app.textFields["Price per unit (USD, optional)"].tap()
-        app.textFields["Price per unit (USD, optional)"].typeText("1.49")
-        app.navigationBars.buttons["Add"].tap()
-        app.buttons.containing(.staticText, identifier: "My Apples").firstMatch.tap()
-        XCTAssertTrue(app.textFields["Price per each (USD)"].waitForExistence(timeout: 5))
-        app.textFields["Price per each (USD)"].tap()
-        app.textFields["Price per each (USD)"].typeText("3.49")
-        app.navigationBars.buttons["Save Price"].tap()
-        XCTAssertTrue(app.staticTexts["Price saved"].waitForExistence(timeout: 5))
-        capture("Saved grocery price without store")
-        app.terminate()
-        app.launchArguments = ["--ui-testing", "--preserve-test-ledger"]
-        app.launch()
-        app.tabBars.buttons["Groceries"].tap()
-        XCTAssertTrue(app.staticTexts["$2.49"].firstMatch.waitForExistence(timeout: 5))
-        app.buttons.containing(.staticText, identifier: "My Apples").firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["Store not specified, $1.49"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Store not specified, $3.49"].exists)
+    func testLegacyLedgerIsPreservedInsteadOfReset() {
+        app.terminate(); app.launchArguments = ["--ui-testing", "--legacy-reset-test"]; app.launch()
+        accounts(); XCTAssertTrue(app.buttons["account-Everyday checking"].waitForExistence(timeout: 10))
+        restart(); accounts(); XCTAssertTrue(app.buttons["account-Everyday checking"].exists)
     }
-    func testOldSampleLedgerCanBeClearedFromSettings() {
-        app.buttons["Settings and exports"].tap()
-        let review = app.buttons["Remove Sample Data…"]
-        for _ in 0..<8 { if review.isHittable { break }; app.swipeUp() }
-        review.tap()
-        XCTAssertTrue(app.navigationBars["Review Sample Ledger"].waitForExistence(timeout: 5))
-        let remove = app.buttons["Remove Unselected Sample Data"]
-        for _ in 0..<16 { if remove.isHittable { break }; app.swipeUp() }
-        remove.tap()
-        app.buttons["Create Personal Ledger"].tap()
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
-        app.navigationBars.buttons["Done"].tap()
-        XCTAssertTrue(app.buttons["Add your first account"].waitForExistence(timeout: 5))
-        capture("Clean personal ledger")
+    func testReportsMovedInsideActivity() {
+        XCTAssertFalse(app.tabBars.buttons["Reports"].exists)
+        app.tabBars.buttons["Activity"].tap(); tap(app.buttons["Reports"])
+        XCTAssertTrue(app.navigationBars["Reports"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.buttons["Backup & Restore"].exists)
     }
-    func testNavigationShoppingAndReports() {
-        capture("Overview")
-        app.buttons["Open shopping mode"].tap()
-        XCTAssertTrue(app.navigationBars["Shopping Mode"].waitForExistence(timeout: 5))
-        app.textFields["Purchase amount in US dollars"].tap()
-        app.textFields["Purchase amount in US dollars"].typeText("25.00")
-        app.buttons["Category, Choose an envelope"].tap()
-        app.collectionViews.buttons["Groceries"].tap()
-        XCTAssertTrue(app.staticTexts["Within your recorded budget"].waitForExistence(timeout: 5))
-        capture("Shopping Mode")
-        app.buttons["Done"].tap()
-        app.tabBars.buttons["Budgets"].tap()
-        XCTAssertTrue(app.navigationBars["Budgets"].exists)
-        capture("Budgets")
-        app.tabBars.buttons["Reports"].tap()
-        XCTAssertTrue(app.staticTexts["TOTAL SPENT"].waitForExistence(timeout: 5))
-        capture("Reports")
-        app.swipeUp()
-        XCTAssertTrue(app.staticTexts["Where it went"].waitForExistence(timeout: 5))
-        capture("Heatmap")
-    }
-    func testExpensePersistsAfterRelaunch() {
-        app.buttons["Add expense"].tap()
-        app.textFields["Merchant or description"].tap()
-        app.textFields["Merchant or description"].typeText("QA Coffee")
-        app.textFields["Amount (USD)"].tap()
-        app.textFields["Amount (USD)"].typeText("12.34")
-        app.buttons["Category, Choose"].tap()
-        app.buttons["Food & coffee"].tap()
-        app.navigationBars.buttons["Save"].tap()
-        XCTAssertTrue(app.buttons["Add expense"].waitForExistence(timeout: 5))
-        app.terminate()
-        app.launchArguments = ["--ui-testing", "--preserve-test-ledger"]
-        app.launch()
-        XCTAssertTrue(app.staticTexts["$2,950.16"].waitForExistence(timeout: 10))
+    func testCartDoesNotRecordExpenseAndPricePersists() {
+        app.tabBars.buttons["Groceries"].tap(); tap(app.buttons["Add item"])
+        enter("Item name", "Apples"); enter("Price per unit (USD, optional)", "1.49")
+        tap(app.buttons["Add to Cart"])
+        XCTAssertTrue(app.staticTexts["Apples"].waitForExistence(timeout: 5))
         app.tabBars.buttons["Activity"].tap()
-        XCTAssertTrue(app.buttons.containing(.staticText, identifier: "QA Coffee").firstMatch.waitForExistence(timeout: 5))
-        capture("Saved Expense")
+        XCTAssertTrue(app.navigationBars["Activity"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons.containing(.staticText, identifier: "Apples").firstMatch.exists)
+        restart(); app.tabBars.buttons["Groceries"].tap()
+        XCTAssertTrue(app.staticTexts["Apples"].waitForExistence(timeout: 5))
+        let apples = app.buttons.containing(.staticText, identifier: "Apples").firstMatch
+        tap(apples)
+        enter("Price per each (USD)", "3.49"); tap(app.navigationBars.buttons["Save Price"])
+        XCTAssertTrue(app.staticTexts["Price saved"].waitForExistence(timeout: 5))
+        // "Price saved" is screen state only; relaunch to check both prices were stored.
+        restart(); app.tabBars.buttons["Groceries"].tap(); tap(apples)
+        reveal(app.staticTexts["Store not specified, $1.49"])
+        reveal(app.staticTexts["Store not specified, $3.49"])
     }
-    func testGroceryObservation() {
-        app.tabBars.buttons["Groceries"].tap()
-        capture("Groceries")
-        app.buttons["Add grocery item"].tap()
-        app.textFields["Name"].tap()
-        app.textFields["Name"].typeText("QA Apples")
-        app.navigationBars.buttons["Add"].tap()
-        app.swipeUp()
-        app.buttons.containing(.staticText, identifier: "QA Apples").firstMatch.tap()
-        XCTAssertTrue(app.textFields["Store (optional)"].waitForExistence(timeout: 5))
-        app.textFields["Store (optional)"].tap()
-        app.textFields["Store (optional)"].typeText("Test Market")
-        app.textFields["Price per each (USD)"].tap()
-        app.textFields["Price per each (USD)"].typeText("1.49")
-        app.buttons["Save Price Observation"].tap()
-        XCTAssertTrue(app.staticTexts["Test Market"].waitForExistence(timeout: 5))
-        capture("Price History")
+    func testTypedShoppingPlanPrefillsAndStaysReviewable() {
+        app.tabBars.buttons["Groceries"].tap(); tap(app.buttons["Add item"])
+        enter("Ice cream tomorrow at Costco at 5 PM", "I want ice cream tomorrow when I go to Costco at 5 PM")
+        tap(app.buttons["Fill Details for Review"])
+        let item = app.textFields["Item name"], shop = app.textFields["Store (optional)"]
+        reveal(item); XCTAssertEqual(item.value as? String, "ice cream")
+        reveal(shop); XCTAssertEqual(shop.value as? String, "Costco")
+        // Cancel rather than requesting notification or microphone permissions.
+        tap(app.buttons["Cancel"])
+    }
+    func testCashDoesNotDeductChecking() {
+        accounts(); addAccount("Checking", "100.00")
+        app.tabBars.buttons["Home"].tap(); tap(app.buttons["Record Purchase"])
+        enter("Merchant or description", "Cash coffee"); enter("Amount (USD)", "5.00")
+        chooseCategory("Food & coffee")
+        // Tap the switch itself; the middle of a Toggle row is its label.
+        let cash = app.switches["Paid with cash"]; reveal(cash)
+        cash.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(cash.value as? String, "1")
+        tap(app.navigationBars.buttons["Save"])
+        XCTAssertTrue(app.navigationBars["Add Expense"].waitForNonExistence(timeout: 5))
+        accounts(); XCTAssertTrue(app.buttons["account-Cash wallet"].waitForExistence(timeout: 5))
+        tap(app.buttons["account-Checking"])
+        XCTAssertTrue(app.staticTexts["Available balance, $100.00"].waitForExistence(timeout: 5))
+    }
+    func testWholeFieldTapFocusesInput() {
+        tap(app.buttons["Record Purchase"])
+        let field = app.textFields["Merchant or description"]
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        field.typeText("Wide tap")
+        XCTAssertEqual(field.value as? String, "Wide tap")
     }
 }

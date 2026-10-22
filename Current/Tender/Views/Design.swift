@@ -148,3 +148,35 @@ struct EmptyNote: View {
     var message: String
     var body: some View { PaperCard { Image(systemName: symbol).font(.title); Text(title).font(.headline); Text(message).font(.subheadline).foregroundStyle(Ink.muted) } }
 }
+
+/// Padding belongs to each field's focus target, preserving native cursor gestures.
+struct TenderField: View {
+    var title: String
+    @Binding var text: String
+    var axis: Axis
+    @FocusState private var focused: Bool
+    init(_ title: String, text: Binding<String>, axis: Axis = .horizontal) { self.title = title; self._text = text; self.axis = axis }
+    var body: some View {
+        TextField(title, text: $text, axis: axis).focused($focused)
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded { focused = true })
+    }
+}
+struct BottomAdd: ViewModifier {
+    var title: String
+    var identifier: String? = nil
+    var action: () -> Void
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
+            Button(action: action) { Label(title, systemImage: "plus").font(.headline).padding(.horizontal, 18).frame(minHeight: 52) }
+                .foregroundStyle(.white).background(Ink.green, in: Capsule()).shadow(radius: 3, y: 2)
+                .padding(.horizontal, 18).padding(.vertical, 8)
+                .accessibilityIdentifier(identifier ?? title)
+        }
+    }
+}
+extension View {
+    // Pass an identifier when a sheet's button has the same title as one on the screen behind it.
+    func bottomAdd(_ title: String, identifier: String? = nil, action: @escaping () -> Void) -> some View { modifier(BottomAdd(title: title, identifier: identifier, action: action)) }
+}

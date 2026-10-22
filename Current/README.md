@@ -1,3 +1,14 @@
+# Personal testing update (v4 source)
+
+Start with [the personal test guide](docs/personal-test-guide.md) and
+[the 18-item status table](docs/feature-status.md). The older README below
+records previous behavior; those two documents describe this revision.
+
+Run `Check Personal Build.command` on your Mac before using the update.
+No iOS compilation, live bank test or backend deployment was performed here.
+
+---
+
 # Tender — current working version (v3)
 
 A native iOS personal finance tracker with an engraved banknote visual language: ivory paper, green ink, fine curved lines, and solid surfaces for readable financial data.

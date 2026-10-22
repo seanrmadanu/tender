@@ -8,6 +8,17 @@ final class LedgerStore {
     var ledger: Ledger
     var error: String?
     var storageHealthy = true
+    var bankUpdating = false
+    var bankMaintenance = false
+    var bankMessage: String?
+    var bankSnapshots: [BankSnapshot] = []
+    var bankFetchedAt: Date?
+    private var lastBankAttempt: Date?
+    var bankAccessPaused: Bool { UserDefaults.standard.bool(forKey: "bankAccessPaused") }
+    var automaticBankUpdates: Bool {
+        get { UserDefaults.standard.object(forKey: "automaticBankUpdates") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "automaticBankUpdates") }
+    }
     let root: URL
     init() {
         #if DEBUG
@@ -28,17 +39,12 @@ final class LedgerStore {
             #endif
             if FileManager.default.fileExists(atPath: file.path) {
                 ledger = try JSONDecoder.tender.decode(Ledger.self, from: Data(contentsOf: file)).validated()
-                // User approved clearing all pre-migration entries on 2026-10-21.
-                // Persist the marker with the replacement ledger so this runs only once.
-                if ledger.freshStartVersion == nil {
-                    let recovery = root.appending(path: "before-approved-fresh-start.json")
-                    if !FileManager.default.fileExists(atPath: recovery.path) {
-                        try JSONEncoder.tender.encode(ledger).write(to: recovery, options: [.atomic, .completeFileProtection])
-                    }
-                    let empty = Ledger.empty()
-                    try JSONEncoder.tender.encode(empty).write(to: file, options: [.atomic, .completeFileProtection])
-                    ledger = empty
+                // Preserve every existing ledger. The earlier one-time reset is retired.
+                if ledger.freshStartVersion == nil { ledger.freshStartVersion = 1 }
+                for i in ledger.groceries.indices where ledger.groceries[i].plannedAt == nil {
+                    ledger.groceries[i].plannedAt = Calendar.current.startOfDay(for: Date())
                 }
+                try JSONEncoder.tender.encode(ledger).write(to: file, options: [.atomic, .completeFileProtection])
             } else { ledger = .empty() }
         } catch {
             ledger = .empty(); storageHealthy = false
@@ -66,6 +72,7 @@ final class LedgerStore {
         } catch { self.error = "Couldn’t preserve a recovery copy. Your existing ledger is unchanged."; return false }
     }
     func restore(_ data: Data) {
+        guard !bankUpdating, !bankMaintenance else { error = "Wait for the bank operation to finish before restoring."; return }
         var stagedFiles: [URL] = []
         do {
             guard data.count < LedgerArchive.maximumEncodedBytes else { throw LedgerError.invalidBackup }
@@ -87,7 +94,8 @@ final class LedgerStore {
                 guard data.count < 30_000_000 else { throw LedgerError.invalidBackup }
                 next = try JSONDecoder.tender.decode(Ledger.self, from: data).validated()
             }
-            next.freshStartVersion = 1 // An explicit restore must survive the next launch.
+            next.freshStartVersion = 1
+            for i in next.accounts.indices where next.accounts[i].bankAccountKey != nil { next.accounts[i].needsReconnection = true }
             let file = root.appending(path: "ledger.json")
             if FileManager.default.fileExists(atPath: file.path) {
                 let backup = root.appending(path: "before-restore-\(UUID().uuidString).json")
@@ -95,6 +103,9 @@ final class LedgerStore {
             }
             try JSONEncoder.tender.encode(next).write(to: file, options: [.atomic, .completeFileProtection])
             ledger = next; storageHealthy = true
+            UserDefaults.standard.set(true, forKey: "bankAccessPaused")
+            bankSnapshots = []; bankFetchedAt = nil
+            bankMessage = "Backup restored. Reauthorize your bank in Settings before fetching current information."
             Task { await refreshReminders() }
         } catch {
             for file in stagedFiles { try? FileManager.default.removeItem(at: file) }
@@ -125,27 +136,96 @@ final class LedgerStore {
     }
     func attachmentURL(_ name: String) -> URL { root.appending(path: "Attachments").appending(path: (name as NSString).lastPathComponent) }
     func refreshReminders() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing") { return }
+        #endif
         let center = UNUserNotificationCenter.current()
-        center.removeAllPendingNotificationRequests()
-        // Keep the nearest future reminders within a conservative request cap.
-        var scheduled = 0
-        for bill in ledger.recurring.filter(\.remind).sorted(by: { $0.nextDue < $1.nextDue }) {
-            let content = UNMutableNotificationContent()
-            content.title = "Upcoming payment"
-            content.body = "\(bill.name) · \(Money.format(bill.amount)) due \(bill.nextDue.formatted(date: .abbreviated, time: .omitted))"
-            content.sound = .default
-            let reminder = Calendar.current.date(byAdding: .day, value: -1, to: bill.nextDue)!
-            var parts = Calendar.current.dateComponents([.year, .month, .day], from: reminder)
-            parts.hour = 9; parts.minute = 0
-            let fireDate = Calendar.current.date(from: parts)!
-            guard fireDate > Date() else { continue }
-            guard scheduled < 60 else { break }
-            scheduled += 1
-            do { try await center.add(UNNotificationRequest(identifier: bill.id.uuidString, content: content, trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false))) }
-            catch { self.error = "The payment reminder couldn’t be scheduled. Check notification access in Settings." }
+        let old = await center.pendingNotificationRequests()
+        center.removePendingNotificationRequests(withIdentifiers: old.map(\.identifier))
+        var reminders: [(String, Date, String, String)] = []
+        for bill in ledger.recurring where bill.remind {
+            let day = Calendar.current.date(byAdding: .day, value: -1, to: bill.nextDue)!
+            let fire = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: day)!
+            reminders.append((bill.id.uuidString, fire, "Upcoming payment", "\(bill.name) · \(Money.format(bill.amount))"))
+        }
+        for item in ledger.groceries where item.remind == true && item.purchasedAt == nil {
+            if let date = item.plannedAt {
+                reminders.append(("shopping-" + item.id.uuidString, date.addingTimeInterval(-3600), "Shopping in one hour", "\(item.name)\(item.storeName.map { " at " + $0 } ?? "")"))
+            }
+        }
+        for (id, date, title, body) in reminders.filter({ $0.1 > Date() }).sorted(by: { $0.1 < $1.1 }).prefix(60) {
+            let content = UNMutableNotificationContent(); content.title = title; content.body = body; content.sound = .default
+            let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+            do { try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false))) }
+            catch { self.error = "A reminder could not be scheduled. Check notification access in Settings." }
         }
     }
+    func refreshBank(force: Bool = false) async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing") { return }
+        #endif
+        guard !bankUpdating, !bankMaintenance, !bankAccessPaused, !ledger.isDemo, storageHealthy,
+              force || automaticBankUpdates, let config = BankConfiguration.load(),
+              force || Date().timeIntervalSince(lastBankAttempt ?? .distantPast) >= 300 else { return }
+        bankUpdating = true; lastBankAttempt = Date(); bankMessage = nil
+        defer { bankUpdating = false }
+        let client = BankClient(configuration: config)
+        var messages: [String] = []
+        do {
+            // accounts/get uses provider cached balances. Never call paid live refresh
+            // or overwrite a locally adjusted ledger balance in this automatic path.
+            let response: BankAccountsResponse = try await client.call("v1/accounts")
+            guard response.environment == "production" else { throw BankError.message("Sandbox data is not imported into your personal ledger.") }
+            let incomingIDs = Set(response.accounts.map(\.id))
+            bankSnapshots.removeAll { incomingIDs.contains($0.id) }
+            bankSnapshots += response.accounts
+            bankFetchedAt = Date(); messages += response.errors
+        } catch { messages.append(error.localizedDescription) }
+        do {
+            let result: BankActivityResponse = try await client.call("v1/transactions/sync", method: "POST")
+            guard result.environment == "production" else { throw BankError.message("Sandbox activity was not imported.") }
+            if !update({ try $0.receiveBankActivity(result.items) }) { messages.append("Bank activity could not be saved. Previous activity is retained.") }
+            messages += result.errors.map(\.message)
+        } catch { messages.append("Activity update failed: " + error.localizedDescription) }
+        bankMessage = messages.isEmpty ? nil : messages.joined(separator: "\n")
+    }
+    func resumeBankAccess() {
+        UserDefaults.standard.set(false, forKey: "bankAccessPaused")
+        lastBankAttempt = nil
+    }
+    func eraseLocalData(bankOnly: Bool) throws {
+        guard !bankUpdating else { throw BankError.message("Wait for the bank update to finish before deleting data.") }
+        var next = bankOnly ? ledger : Ledger.empty()
+        if bankOnly {
+            let bankIDs = Set(next.accounts.filter { $0.bankAccountKey != nil }.map(\.id))
+            let removedIDs = Set(next.expenses.filter { bankIDs.contains($0.accountID) }.map(\.id))
+            next.expenses.removeAll { bankIDs.contains($0.accountID) }
+            next.accounts.removeAll { bankIDs.contains($0.id) }
+            next.bankActivity = nil
+            for i in next.groceries.indices where next.groceries[i].expenseID.map(removedIDs.contains) == true {
+                next.groceries[i].expenseID = nil
+            }
+        }
+        try JSONEncoder.tender.encode(try next.validated()).write(to: root.appending(path: "ledger.json"), options: [.atomic, .completeFileProtection])
+        ledger = next; bankSnapshots = []; bankFetchedAt = nil; bankMessage = nil
+        // Remove recovery copies as well as unreferenced receipt files; backups the
+        // user exported to Files remain under their control.
+        for file in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            where file.pathExtension == "json" && file.lastPathComponent != "ledger.json" {
+            try FileManager.default.removeItem(at: file)
+        }
+        for file in try FileManager.default.contentsOfDirectory(at: root.appending(path: "Attachments"), includingPropertiesForKeys: nil)
+            where !next.attachmentNames.contains(file.lastPathComponent) {
+            try FileManager.default.removeItem(at: file)
+        }
+        try BankConfiguration.remove()
+        UserDefaults.standard.set(true, forKey: "bankAccessPaused")
+        Task { await refreshReminders() }
+    }
     func enableReminders() async -> Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing") { return false }
+        #endif
         do {
             let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             if !granted { error = "Notifications are off. Enable Tender in iPhone Settings → Notifications." }

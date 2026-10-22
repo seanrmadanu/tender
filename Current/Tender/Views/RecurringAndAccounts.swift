@@ -3,9 +3,19 @@ import SwiftUI
 struct RecurringList: View {
     @Environment(LedgerStore.self) private var store
     @State private var edit: RecurringBill?
+    @State private var suggestion: SubscriptionSuggestion?
     var body: some View {
         SectionHeading(title: "Know what’s coming.", subtitle: "Subscriptions, bills, and the little renewals.")
         PaperCard { AmountRow(label: "Monthly equivalent", amount: store.ledger.recurring.reduce(0) { $0 + $1.monthlyEquivalent }); AmountRow(label: "Reserved for next 30 days", amount: store.ledger.upcomingReserve()) }
+        if !store.ledger.subscriptionSuggestions.isEmpty {
+            SectionHeading(title: "Possible subscriptions", subtitle: "Repeated bank purchases · review before adding")
+            ForEach(store.ledger.subscriptionSuggestions) { candidate in
+                Button { suggestion = candidate } label: {
+                    HStack { VStack(alignment: .leading) { Text(candidate.merchant); Text("\(candidate.occurrences) similar charges · \(candidate.cycle.rawValue)").font(.caption) }; Spacer(); Text(Money.format(candidate.amount)) }
+                }.frame(minHeight: 48)
+            }
+            Text("Suggestions require at least three similar charges. They may be regular purchases rather than subscriptions. No recurring-data add-on is requested.").font(.footnote)
+        }
         if store.ledger.recurring.isEmpty { EmptyNote(symbol: "repeat", title: "No surprises.", message: "Add a recurring payment to see upcoming costs and request a reminder.") }
         ForEach(store.ledger.recurring.sorted { $0.nextDue < $1.nextDue }) { bill in
             Button { edit = bill } label: {
@@ -17,12 +27,14 @@ struct RecurringList: View {
         }
         Text("A recurring entry reserves cash for planning. It becomes an expense only when you choose Mark Paid. Reminders cover the next due date and refresh when you edit or mark a payment paid.").font(.footnote).foregroundStyle(Ink.muted)
             .sheet(item: $edit) { bill in NavigationStack { RecurringForm(existing: bill) } }
+            .sheet(item: $suggestion) { candidate in NavigationStack { RecurringForm(suggestion: candidate) } }
     }
 }
 struct RecurringForm: View {
     @Environment(LedgerStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     var existing: RecurringBill? = nil
+    var suggestion: SubscriptionSuggestion? = nil
     @State private var name = ""
     @State private var amount = ""
     @State private var category: UUID?
@@ -34,7 +46,7 @@ struct RecurringForm: View {
     private var valid: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && (Money.cents(amount) ?? 0) > 0 && category != nil }
     var body: some View {
         Form {
-            Section("Payment") { TextField("Name", text: $name); TextField("Amount (USD)", text: $amount).keyboardType(.decimalPad); Picker("Category", selection: $category) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }; Picker("Repeats", selection: $cycle) { ForEach(BillingCycle.allCases, id: \.self) { Text($0.rawValue).tag($0) } }; DatePicker("Next due", selection: $due, displayedComponents: .date) }
+            Section("Payment") { TenderField("Name", text: $name); TenderField("Amount (USD)", text: $amount).keyboardType(.decimalPad); Picker("Category", selection: $category) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }; Picker("Repeats", selection: $cycle) { ForEach(BillingCycle.allCases, id: \.self) { Text($0.rawValue).tag($0) } }; DatePicker("Next due", selection: $due, displayedComponents: .date) }
             Section { Toggle("Remind me one day before at 9 AM", isOn: $remind) } footer: { Text("Tender asks for notification access when you save a reminder. Due dates within one day may be too close for a reminder.") }
             if existing != nil {
                 Section("Record payment") {
@@ -45,7 +57,7 @@ struct RecurringForm: View {
             }
         }.paperForm().navigationTitle(existing == nil ? "New Recurring Payment" : "Recurring Payment").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save") { Task { await save(paid: false) } }.disabled(!valid) } }
-            .onAppear { account = store.ledger.accounts.first?.id; category = store.ledger.categories.last?.id; if let e = existing { name = e.name; amount = Money.input(e.amount); category = e.categoryID; due = e.nextDue; cycle = e.cycle; remind = e.remind } }
+            .onAppear { account = store.ledger.accounts.first?.id; category = store.ledger.categories.last?.id; if let candidate = suggestion { name = candidate.merchant; amount = Money.input(candidate.amount); due = candidate.nextDue; cycle = candidate.cycle }; if let e = existing { name = e.name; amount = Money.input(e.amount); category = e.categoryID; due = e.nextDue; cycle = e.cycle; remind = e.remind } }
             .confirmationDialog("Delete this recurring payment?", isPresented: $delete, titleVisibility: .visible) { Button("Delete", role: .destructive) { if store.update({ $0.recurring.removeAll { $0.id == existing?.id } }) { Task { await store.refreshReminders() }; dismiss() } } }
     }
     private func save(paid: Bool) async {
@@ -68,15 +80,11 @@ struct RecurringForm: View {
 struct AccountForm: View {
     @Environment(LedgerStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @State private var adding = false
     var body: some View {
         Form {
             Section {
-                NavigationLink { ManualAccountForm() } label: {
-                    Label { VStack(alignment: .leading, spacing: 5) {
-                        Text("Add Manual Account").font(.headline)
-                        Text("Track a balance and purchases yourself.").font(.subheadline).foregroundStyle(.secondary)
-                    }.padding(.vertical, 4) } icon: { Image(systemName: "pencil.and.list.clipboard") }
-                }.accessibilityIdentifier("add-manual-account")
+                Text("Add a manual account or cash wallet below. Connect a bank only when you want bank information.")
             } header: { Text("No bank connection needed") } footer: {
                 Text("Use any nickname, like Chase, Capital One, or Cash. No account number, bank login, or Plaid account is required. Manual records stay on this device unless you export or back them up.")
             }
@@ -95,7 +103,8 @@ struct AccountForm: View {
             Section {
                 NavigationLink { BankConnectionView() } label: { Label("Connect with Plaid", systemImage: "building.columns") }
             } header: { Text("Optional bank connection") } footer: { Text("Retrieve balances for supported checking and savings accounts. You can keep using every manual feature without connecting.") }
-        }.paperForm().navigationTitle("Accounts").navigationBarTitleDisplayMode(.inline).toolbar { Button("Done") { dismiss() } }
+        }.paperForm().navigationTitle("Accounts").navigationBarTitleDisplayMode(.inline).bottomAdd("Add Account") { adding = true }
+            .sheet(isPresented: $adding) { NavigationStack { ManualAccountForm() } }
     }
 }
 
@@ -105,28 +114,30 @@ struct ManualAccountForm: View {
     var existing: Account? = nil
     @State private var name = ""
     @State private var amount = ""
+    @State private var cash = false
     var body: some View {
         Form {
             Section {
-                TextField("Account name", text: $name)
-                TextField("Available balance (USD)", text: $amount).keyboardType(.decimalPad)
+                TenderField("Account name", text: $name)
+                if existing?.bankAccountKey == nil { Toggle("Cash wallet", isOn: $cash) }
+                TenderField("Available balance (USD)", text: $amount).keyboardType(.decimalPad)
             } header: { Text(existing == nil ? "Your account" : "Update recorded balance") } footer: { Text("A nickname and balance are enough. No banking details are collected. Enter 0 if you want to start tracking purchases without an opening balance.") }
             Section { Text("New purchases deduct from this balance. Updating the balance replaces the current amount and keeps your purchase history. For an older purchase already included in the balance, turn off Deduct from current balance.").font(.footnote).foregroundStyle(.secondary) }
         }.paperForm().navigationTitle(existing == nil ? "Manual Account" : "Update Balance").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button(existing == nil ? "Add Account" : "Save") { save() }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || Money.cents(amount) == nil) }
-            }
-            .onAppear { if let existing { name = existing.name; amount = Money.input(max(0, existing.available)) } }
+            .bottomAdd(existing == nil ? "Add Account" : "Save", identifier: "save-manual-account") { save() }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .onAppear { if let existing { name = existing.name; amount = Money.input(max(0, existing.available)); cash = existing.isCash == true } }
     }
     private func save() {
-        guard let cents = Money.cents(amount) else { return }
+        guard let cents = Money.cents(amount), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { store.error = "Enter an account name and a valid balance."; return }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if store.update({ ledger in
             if let existing, let i = ledger.accounts.firstIndex(where: { $0.id == existing.id }) {
                 ledger.accounts[i].name = trimmedName
+                if existing.bankAccountKey == nil { ledger.accounts[i].isCash = cash }
                 ledger.setBalance(accountID: existing.id, available: cents)
                 ledger.accounts[i].source = "Manual"
-            } else { ledger.accounts.append(Account(name: trimmedName, available: cents)) }
+            } else { ledger.accounts.append(Account(name: trimmedName, available: cents, isCash: cash)) }
         }) { dismiss() }
     }
 }
@@ -147,7 +158,6 @@ struct AccountDetailView: View {
                     Text("Updated \(account.updated.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary)
                 }
                 Section {
-                    Button { addPurchase = true } label: { Label("Add Purchase", systemImage: "plus") }
                     NavigationLink("Update Balance") { ManualAccountForm(existing: account) }
                 }
                 Section("Purchases (\(purchases.count))") {
@@ -158,6 +168,7 @@ struct AccountDetailView: View {
                 }
             }
         }.paperForm().navigationTitle(account?.name ?? "Account").navigationBarTitleDisplayMode(.inline)
+            .bottomAdd("Add Purchase") { addPurchase = true }
             .sheet(isPresented: $addPurchase) { NavigationStack { ExpenseForm(initialAccount: accountID) } }
             .sheet(item: $selectedExpense) { expense in NavigationStack { ExpenseDetail(expense: expense) } }
     }

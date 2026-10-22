@@ -3,60 +3,145 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(LedgerStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
-    @State private var fresh = false
-    @State private var exporter = false
-    @State private var importer = false
-    @State private var restoreConfirm = false
-    @State private var pendingRestore: Data?
-    @State private var document = ExportDocument(data: Data())
-    @State private var exportType = UTType.json
-    @State private var filename = "Tender-Ledger.json"
     var body: some View {
         Form {
             Section {
-                HStack(spacing: 14) { Image(systemName: "seal").font(.largeTitle); VStack(alignment: .leading, spacing: 5) { Text("tender").font(.system(.title, design: .serif)); Text("A little more intentional.").font(.subheadline).foregroundStyle(.secondary) } }.padding(.vertical, 8)
-                LabeledContent("Ledger", value: store.ledger.isDemo ? "Sample data" : "Personal · local storage")
-                LabeledContent("Currency", value: "USD")
+                HStack { Image(systemName: "seal").font(.largeTitle); VStack(alignment: .leading) { Text("tender").font(.system(.title, design: .serif)); Text("Personal edition · USD").font(.caption) } }
             }
-            Section {
-                Text("1. In Shortcuts, find Tender → Open Shopping Mode. Create a shortcut with that action.\n\n2. Open Settings → Accessibility → Touch → Back Tap → Triple Tap.\n\n3. Select your Shopping Mode shortcut.")
-                Text("You can also use an Open URLs action with tender://shopping. Back Tap is configured by you in iOS Settings; the app cannot assign it automatically.").font(.footnote).foregroundStyle(.secondary)
-                Link("Apple’s Back Tap instructions", destination: URL(string: "https://support.apple.com/guide/shortcuts/apd897693606/ios")!)
-            } header: { Text("Triple-tap shopping shortcut") }
-            Section {
-                Button { exportCompleteBackup() } label: { Label("Export Backup with Bills & Photos", systemImage: "archivebox") }
-                Button { exportJSON() } label: { Label("Export Ledger Only (JSON)", systemImage: "externaldrive") }
-                Button { prepare(Data(store.csv().utf8), type: .commaSeparatedText, name: "Tender-Expenses.csv") } label: { Label("Export Expenses (CSV)", systemImage: "tablecells") }
-                Button { prepare(Data(store.summary(days: 7).utf8), type: .plainText, name: "Tender-Weekly-Summary.txt") } label: { Label("Export Weekly Summary", systemImage: "calendar") }
-                Button { prepare(Data(store.summary().utf8), type: .plainText, name: "Tender-Monthly-Summary.txt") } label: { Label("Export Monthly Summary", systemImage: "chart.bar.doc.horizontal") }
-                Button { importer = true } label: { Label("Restore Ledger from JSON", systemImage: "arrow.clockwise.icloud") }
-            } header: { Text("iCloud & analysis") } footer: { Text("Choose iCloud Drive in Files. The complete backup includes bills and photos (up to 60 MB of attachments). Ledger JSON, CSV, and summaries are smaller files for analysis. Share selected exports with Claude or ChatGPT; neither gets automatic access to iCloud. Exports are snapshots, not automatic sync.") }
-            Section("Privacy") {
-                Text("Expenses, bills, and price photos stay in the app’s Documents folder with iOS file protection. OCR runs on device. Bank Connect contacts Plaid through your configured bridge only when you use it. Tender does not upload your ledger to an AI service.")
-                Text("Exports contain sensitive financial records. Share only the files you choose. Your iCloud and device backup behavior follows your Apple settings.").font(.footnote).foregroundStyle(.secondary)
+            Section("Your money") {
+                NavigationLink { AccountForm() } label: { Label("Accounts & Cash Wallet", systemImage: "wallet.bifold") }
+                NavigationLink { BankConnectionView() } label: { Label("Bank Connections", systemImage: "building.columns") }
             }
-            if store.ledger.isDemo {
-                Section {
-                    NavigationLink("Remove Sample Data…") { SampleCleanupView() }
-                } footer: { Text("Choose any real entries to keep. A local recovery copy is saved before sample data is removed.") }
+            Section("Preferences") {
+                NavigationLink { UpdateSettingsView() } label: { Label("Bank Updates & Reminders", systemImage: "arrow.triangle.2.circlepath") }
+                NavigationLink { ShortcutSettingsView() } label: { Label("Shopping Shortcut", systemImage: "hand.tap") }
             }
+            Section("Your data") {
+                NavigationLink { BackupSettingsView() } label: { Label("Backup & Restore", systemImage: "icloud") }
+                NavigationLink { PrivacySettingsView() } label: { Label("Privacy & Delete Data", systemImage: "lock.shield") }
+                if store.ledger.isDemo { NavigationLink("Review Old Sample Data") { SampleCleanupView() } }
+            }
+            Section { Text("Apple/Google sign-in and separate online accounts are planned for the friends’ beta. This build uses your existing personal bank connection.").font(.footnote).foregroundStyle(.secondary) }
+        }.paperForm().navigationTitle("Settings")
+    }
+}
+struct UpdateSettingsView: View {
+    @Environment(LedgerStore.self) private var store
+    var body: some View {
+        Form {
             Section {
-                Button(store.ledger.isDemo ? "Start My Own Ledger" : "Reset to an Empty Ledger", role: .destructive) { fresh = true }.disabled(!store.storageHealthy)
-            } footer: { Text("Keeps the default categories. Removes the current expenses, balances, recurring entries, and grocery list. Export first if you want to keep them.") }
-        }.paperForm().navigationTitle("Settings").navigationBarTitleDisplayMode(.inline).toolbar { Button("Done") { dismiss() } }
-            .fileExporter(isPresented: $exporter, document: document, contentType: exportType, defaultFilename: filename) { result in if case .failure = result { store.error = "Couldn’t export this file. Choose another Files location and try again." } }
+                Toggle("Automatically check bank information", isOn: Binding(get: { store.automaticBankUpdates }, set: { store.automaticBankUpdates = $0 }))
+                Text("Checks when you open Tender and every five minutes while it is active. Retrieves provider-cached balances and available transaction updates; it does not request a paid on-demand bank refresh. Banks can take time to post changes.").font(.footnote)
+                Button("Check Now") { Task { await store.refreshBank(force: true) } }.disabled(store.bankUpdating || store.bankAccessPaused || BankConfiguration.load() == nil)
+                if let date = store.bankFetchedAt { LabeledContent("Last balance retrieval", value: date.formatted(date: .abbreviated, time: .shortened)) }
+                if let message = store.bankMessage { Text(message).foregroundStyle(Ink.warning) }
+                Text("Wallet cards label cached balances. Recorded ledger balances remain separate and change only through reviewed snapshots or manual entries.").font(.footnote)
+            } header: { Text("Bank freshness") }
+            Section {
+                Text("Shopping reminders arrive one hour before the time you confirm. Recurring payment reminders arrive the previous day at 9 AM. iOS controls delivery; Tender schedules the nearest 60 future reminders.")
+                Button("Enable Notifications") { Task { _ = await store.enableReminders(); await store.refreshReminders() } }
+            } header: { Text("Reminders") }
+        }.paperForm().navigationTitle("Updates & Reminders")
+    }
+}
+struct ShortcutSettingsView: View {
+    var body: some View {
+        Form {
+            Text("1. In Shortcuts, create a shortcut using Tender → Open Shopping Mode.\n\n2. Open iPhone Settings → Accessibility → Touch → Back Tap → Triple Tap.\n\n3. Select your shortcut.")
+            Text("You can also use tender://shopping in an Open URLs action.").font(.footnote)
+        }.paperForm().navigationTitle("Shopping Shortcut")
+    }
+}
+struct BackupSettingsView: View {
+    @Environment(LedgerStore.self) private var store
+    @State private var exporter = false
+    @State private var importer = false
+    @State private var confirm = false
+    @State private var pending: Data?
+    @State private var document = ExportDocument(data: Data())
+    @State private var type = UTType.json
+    @State private var filename = "Tender-Backup.json"
+    @State private var saved: String?
+    var body: some View {
+        Form {
+            Section {
+                Button("Save Complete Backup", systemImage: "icloud.and.arrow.up") {
+                    do { prepare(try store.completeBackup(), name: "Tender-Backup.json", type: .json) }
+                    catch { store.error = "Backup could not be created. Check that attachments are present and total no more than 60 MB." }
+                }
+                Button("Restore Backup", systemImage: "icloud.and.arrow.down") { importer = true }.disabled(store.bankUpdating)
+                if let saved { Text(saved).font(.footnote) }
+            } footer: { Text("Choose iCloud Drive in the Files sheet. The complete backup includes receipts and photos. Saving is manual; this free-team build does not enable an iCloud container or automatic synchronization. Restoring requires bank reauthorization before updates resume.") }
+            Section {
+                DisclosureGroup("Export for analysis") {
+                    Button("Ledger JSON") { do { prepare(try JSONEncoder.tender.encode(store.ledger), name: "Tender-Ledger.json", type: .json) } catch { store.error = "Could not create export." } }
+                    Button("Expenses CSV") { prepare(Data(store.csv().utf8), name: "Tender-Expenses.csv", type: .commaSeparatedText) }
+                    Button("Weekly Summary") { prepare(Data(store.summary(days: 7).utf8), name: "Tender-Weekly.txt", type: .plainText) }
+                    Button("Monthly Summary") { prepare(Data(store.summary().utf8), name: "Tender-Monthly.txt", type: .plainText) }
+                }
+            } footer: { Text("Analysis exports omit attachment files. Exports contain financial information; bank access tokens are never included.") }
+        }.paperForm().navigationTitle("Backup & Restore")
+            .fileExporter(isPresented: $exporter, document: document, contentType: type, defaultFilename: filename) { result in
+                switch result { case .success: saved = "Backup/export saved to your selected location."; case .failure: store.error = "The file could not be saved. Try another Files location." }
+            }
             .fileImporter(isPresented: $importer, allowedContentTypes: [.json]) { result in
-                do { let url = try result.get(); let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }; let values = try url.resourceValues(forKeys: [.fileSizeKey]); guard (values.fileSize ?? 0) < LedgerArchive.maximumEncodedBytes else { throw LedgerError.invalidBackup }; pendingRestore = try Data(contentsOf: url); restoreConfirm = true }
-                catch { store.error = "Couldn’t read this backup. Choose a Tender backup under 120 MB (ledger-only files must be under 30 MB)." }
+                do {
+                    let url = try result.get(); let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
+                    guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) < LedgerArchive.maximumEncodedBytes else { throw LedgerError.invalidBackup }
+                    pending = try Data(contentsOf: url); confirm = true
+                } catch { store.error = "Choose a valid Tender backup under 120 MB." }
             }
-            .confirmationDialog("Replace your ledger with this backup? A copy of the current JSON will be kept on this device. Complete backups restore bill and price photos. Ledger-only exports do not include images.", isPresented: $restoreConfirm, titleVisibility: .visible) { Button("Replace Ledger", role: .destructive) { if let pendingRestore { store.restore(pendingRestore) }; pendingRestore = nil }; Button("Cancel", role: .cancel) { pendingRestore = nil } }
-            .confirmationDialog("Start a fresh ledger? This removes the current ledger entries. Export a backup first if needed.", isPresented: $fresh, titleVisibility: .visible) { Button("Start Fresh", role: .destructive) { if store.update({ $0 = .empty() }) { Task { await store.refreshReminders() }; dismiss() } } }
+            .confirmationDialog("Replace this ledger with your backup? A local recovery copy will be kept. Bank updates will pause until you reauthorize your connection.", isPresented: $confirm, titleVisibility: .visible) {
+                Button("Restore", role: .destructive) { if let pending { store.restore(pending) }; pending = nil }
+                Button("Cancel", role: .cancel) { pending = nil }
+            }
     }
-    private func exportCompleteBackup() {
-        do { prepare(try store.completeBackup(), type: .json, name: "Tender-Complete-Backup.json") }
-        catch { store.error = "Couldn’t create a complete backup. Check that all attached files are present and together are under 60 MB. You can still export the ledger on its own." }
+    private func prepare(_ data: Data, name: String, type: UTType) { document = ExportDocument(data: data); filename = name; self.type = type; exporter = true }
+}
+struct PrivacySettingsView: View {
+    @Environment(LedgerStore.self) private var store
+    @State private var bankOnly = true
+    @State private var confirm = false
+    @State private var exporter = false
+    @State private var busy = false
+    @State private var document = ExportDocument(data: Data())
+    @State private var message: String?
+    private var remoteAccessUnknown: Bool { BankConfiguration.load() == nil && store.ledger.accounts.contains { $0.bankAccountKey != nil } }
+    var body: some View {
+        Form {
+            Section("Protection") {
+                Text("Bank credentials stay in the encrypted backend vault. Device access uses Keychain; ledger and receipt files use iOS file protection. Photo recognition and this app’s shopping speech recognition run on device.")
+                Text("No financial data is sent to an AI service. Your exported backups and Apple device backups follow your own storage settings.").font(.footnote)
+            }
+            Section {
+                Button("Wipe My Bank Information", role: .destructive) { bankOnly = true; confirm = true }.disabled(busy || store.bankUpdating)
+                Button("Delete All My Tender Data", role: .destructive) { bankOnly = false; confirm = true }.disabled(busy || store.bankUpdating)
+                if remoteAccessUnknown { Text("No connection credentials are saved. Deletion can remove device data, but cannot verify or revoke old remote bank access.").font(.footnote).foregroundStyle(Ink.warning) }
+                if busy { ProgressView("Revoking bank access and deleting data…") }
+                if let message { Text(message).font(.footnote) }
+            } footer: { Text("Bank wipe revokes saved bank connections and removes linked accounts, their expense records, imported activity and local recovery copies. Delete All also removes manual records and photos. There is no online sign-in account in this personal edition. Independently exported backups remain yours to delete in Files.") }
+        }.paperForm().navigationTitle("Privacy & Delete Data")
+            .confirmationDialog(remoteAccessUnknown ? "Delete device data? Old remote bank access cannot be revoked without connection settings." : bankOnly ? "Wipe bank data and revoke access?" : "Delete all Tender data and revoke bank access?", isPresented: $confirm, titleVisibility: .visible) {
+                Button("Save Backup, Then Delete", role: .destructive) {
+                    do { document = ExportDocument(data: try store.completeBackup()); exporter = true }
+                    catch { store.error = "Backup could not be prepared. No data has been deleted." }
+                }
+                Button("Delete Without a Backup", role: .destructive) { Task { await erase() } }
+                Button("Cancel", role: .cancel) {}
+            }
+            .fileExporter(isPresented: $exporter, document: document, contentType: .json, defaultFilename: "Tender-Before-Deletion.json") { result in
+                if case .success = result { Task { await erase() } }
+                else { message = "Backup was not saved. No deletion was performed." }
+            }
     }
-    private func exportJSON() { do { prepare(try JSONEncoder.tender.encode(store.ledger), type: .json, name: "Tender-Ledger.json") } catch { store.error = "Couldn’t prepare this backup." } }
-    private func prepare(_ data: Data, type: UTType, name: String) { document = ExportDocument(data: data); exportType = type; filename = name; exporter = true }
+    private func erase() async {
+        guard !busy, !store.bankUpdating else { return }
+        busy = true; store.bankMaintenance = true; defer { busy = false; store.bankMaintenance = false }
+        do {
+            let unknown = remoteAccessUnknown
+            if let config = BankConfiguration.load() { try await BankClient(configuration: config).disconnect() }
+            try store.eraseLocalData(bankOnly: bankOnly)
+            message = unknown ? "Device data removed. Old remote bank access could not be verified or revoked; manage it with the bank/provider." : bankOnly ? "Bank information removed and saved connections revoked." : "Tender data deleted. Restore a saved backup if you return, then reconnect your bank."
+        } catch { message = "Deletion could not finish: " + error.localizedDescription + " Retry before assuming all data was removed." }
+    }
 }

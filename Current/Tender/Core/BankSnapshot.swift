@@ -27,9 +27,10 @@ extension Ledger {
         let linked = accounts.first { $0.bankAccountKey == key }
         if let id = linked?.id ?? manualID {
             guard let index = accounts.firstIndex(where: { $0.id == id }),
-                  accounts[index].bankAccountKey == nil || accounts[index].bankAccountKey == key else { throw LedgerError.invalidBackup }
+                  (accounts[index].bankAccountKey == nil || accounts[index].bankAccountKey == key || accounts[index].needsReconnection == true), accounts[index].isCash != true else { throw LedgerError.invalidBackup }
             setBalance(accountID: id, available: amount)
             accounts[index].bankAccountKey = key
+            accounts[index].needsReconnection = false
             accounts[index].snapshotAt = snapshot.retrievedAt
             accounts[index].source = "Plaid snapshot"
         } else {

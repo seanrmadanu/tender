@@ -9,11 +9,11 @@ struct RootView: View {
     var body: some View {
         @Bindable var store = store
         TabView(selection: $tab) {
-            NavigationStack { OverviewView(sheet: $sheet) }.tabItem { Label("Overview", systemImage: "square.grid.2x2") }.tag(0)
+            NavigationStack { OverviewView(sheet: $sheet) }.tabItem { Label("Home", systemImage: "square.grid.2x2") }.tag(0)
             NavigationStack { BudgetView() }.tabItem { Label("Budgets", systemImage: "chart.pie") }.tag(1)
             NavigationStack { ActivityView(sheet: $sheet) }.tabItem { Label("Activity", systemImage: "list.bullet.rectangle") }.tag(2)
             NavigationStack { GroceryView(sheet: $sheet) }.tabItem { Label("Groceries", systemImage: "basket") }.tag(3)
-            NavigationStack { ReportView() }.tabItem { Label("Reports", systemImage: "chart.xyaxis.line") }.tag(4)
+            NavigationStack { SettingsView() }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(4)
         }
         .sheet(item: $sheet) { route in
             NavigationStack {
@@ -30,8 +30,15 @@ struct RootView: View {
         .alert("Couldn’t complete this action", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) { Button("Dismiss", role: .cancel) {} } message: { Text(store.error ?? "") }
         .onOpenURL { url in if url.scheme == "tender" && url.host == "shopping" { sheet = .shopping } }
         .onReceive(NotificationCenter.default.publisher(for: .openShopping)) { _ in openShoppingIfNeeded() }
-        .onChange(of: phase) { _, phase in if phase == .active { openShoppingIfNeeded(); Task { await store.refreshReminders() } } }
+        .onChange(of: phase) { _, phase in if phase == .active { openShoppingIfNeeded(); Task { await store.refreshReminders(); await store.refreshBank() } } }
         .onAppear { openShoppingIfNeeded() }
+        .task {
+            await store.refreshBank()
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(300)) } catch { break }
+                if phase == .active { await store.refreshBank() }
+            }
+        }
     }
     private func openShoppingIfNeeded() {
         if UserDefaults.standard.bool(forKey: "openShopping") { UserDefaults.standard.removeObject(forKey: "openShopping"); sheet = .shopping }
@@ -43,37 +50,32 @@ struct OverviewView: View {
     private var ledger: Ledger { store.ledger }
     var body: some View {
         PaperScreen {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("YOUR EVERYDAY LEDGER").font(.system(.caption2, design: .monospaced).weight(.semibold)).tracking(2).foregroundStyle(Ink.muted)
-                    Text("A little more intentional.").font(.system(.title2, design: .serif))
-                }
-                Spacer()
-                Button { sheet = .settings } label: { Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44).background(Ink.card, in: Circle()).overlay(Circle().stroke(Ink.line, lineWidth: 1)) }.accessibilityLabel("Settings and exports")
-            }
-            if ledger.isDemo {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkle")
-                    Text("Old sample ledger · review and remove").font(.caption.weight(.medium))
-                    Spacer()
-                    Button("Review") { sheet = .settings }.font(.caption.weight(.bold)).frame(minHeight: 44)
-                }.foregroundStyle(Ink.muted)
-            }
-            balanceCard
+            SectionHeading(title: "Your accounts", subtitle: "Swipe to see each account.")
             if ledger.accounts.isEmpty {
-                Button { sheet = .account } label: { Label("Add your first account", systemImage: "plus.circle").frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44) }
-                Text("Connect a bank or enter a balance, then set your category budgets in Budgets.").font(.footnote).foregroundStyle(Ink.muted)
+                EmptyNote(symbol: "wallet.bifold", title: "Your wallet starts here.", message: "Add an account or a cash wallet in Settings → Accounts.")
             } else {
-                Button { sheet = .account } label: { Label("Manage \(ledger.accounts.count) accounts", systemImage: "building.columns").frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44) }
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 0) {
+                        ForEach(ledger.accounts) { account in
+                            NavigationLink { AccountDetailView(accountID: account.id) } label: {
+                                WalletAccountCard(account: account).padding(.horizontal, 3)
+                            }.buttonStyle(.plain).containerRelativeFrame(.horizontal)
+                        }
+                    }.scrollTargetLayout()
+                }.scrollTargetBehavior(.paging).scrollIndicators(.hidden)
             }
-            HStack(spacing: 12) {
-                Button { sheet = .expense } label: { Label("Add expense", systemImage: "plus").frame(maxWidth: .infinity) }.buttonStyle(PrimaryButton())
-                Button { sheet = .shopping } label: { Image(systemName: "bag").font(.title3).frame(width: 56, height: 54).background(Ink.card, in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(Ink.line, lineWidth: 1)) }.accessibilityLabel("Open shopping mode")
+            if store.bankUpdating { ProgressView("Checking bank information…") }
+            if let message = store.bankMessage { Text(message).font(.caption).foregroundStyle(Ink.warning) }
+            if store.bankAccessPaused { Text("Bank access is paused. Reconnect in Settings to retrieve current information.").font(.caption).foregroundStyle(Ink.warning) }
+            NavigationLink { BankActivityView() } label: { Label("Bank activity", systemImage: "building.columns") }
+            ForEach(Array((ledger.bankActivity ?? []).flatMap(\.transactions).sorted { $0.date > $1.date }.prefix(5))) { transaction in
+                NavigationLink { ReviewBankPurchase(transaction: transaction) } label: { BankActivityRow(transaction: transaction) }.buttonStyle(.plain)
             }
             VStack(alignment: .leading, spacing: 15) {
                 HStack { SectionHeading(title: "This month", subtitle: Date().formatted(.dateTime.month(.wide).year())); Spacer(); Image(systemName: "leaf").foregroundStyle(Ink.accent).font(.title2) }
                 PaperCard {
-                    AmountRow(label: "Spent so far", amount: ledger.spent(in: ledger.month()))
+                    AmountRow(label: "Recorded spending", amount: ledger.spent(in: ledger.month()))
+                    Text("Review imported bank purchases to include them in these totals.").font(.caption).foregroundStyle(Ink.muted)
                     BudgetMeter(spent: ledger.spent(in: ledger.month()), limit: ledger.monthlyBudget)
                     AmountRow(label: "Monthly allocation", amount: ledger.monthlyBudget)
                     Text("\(Money.format(ledger.monthlyBudget - ledger.spent(in: ledger.month()))) left across your categories").font(.caption).foregroundStyle(Ink.muted)
@@ -93,24 +95,34 @@ struct OverviewView: View {
             PaperCard {
                 HStack { Image(systemName: "hand.tap").font(.title2); Text("Pause before you purchase.").font(.system(.headline, design: .serif)) }
                 Text("Shopping Mode checks your category and cash before you commit. Add it to Triple Back Tap in Settings.").font(.subheadline).foregroundStyle(Ink.muted)
-                Button("Check a purchase →") { sheet = .shopping }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                Button("Check a purchase →") { sheet = .shopping }.accessibilityIdentifier("open-shopping").font(.subheadline.weight(.semibold)).frame(minHeight: 44)
             }
         }
         .navigationTitle("tender").navigationBarTitleDisplayMode(.inline)
+        .bottomAdd("Record Purchase") { sheet = .expense }
+        .refreshable { await store.refreshBank(force: true) }
         .toolbar { ToolbarItem(placement: .topBarLeading) { Image(systemName: "seal").foregroundStyle(Ink.green) }; ToolbarItem(placement: .topBarTrailing) { Text(Date().formatted(.dateTime.month(.abbreviated).day())).font(.system(.caption, design: .monospaced)).foregroundStyle(Ink.muted) } }
     }
-    private var balanceCard: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack { Text("AVAILABLE BALANCE").font(.system(.caption, design: .monospaced).weight(.medium)).tracking(1.5); Spacer(); Image(systemName: "building.columns") }
-            MoneyText(amount: ledger.available).font(.system(.largeTitle, design: .serif).weight(.medium)).monospacedDigit().minimumScaleFactor(0.6).lineLimit(1)
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 5) { Text("After upcoming bills").font(.caption).opacity(0.85); MoneyText(amount: ledger.available - ledger.upcomingReserve()).font(.title3.weight(.semibold)).monospacedDigit() }
-                Spacer()
-                Button { sheet = .account } label: { Image(systemName: "arrow.up.right").font(.headline).frame(width: 44, height: 44).overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 1)) }.accessibilityLabel("Manage account balances")
+}
+struct WalletAccountCard: View {
+    @Environment(LedgerStore.self) private var store
+    let account: Account
+    private var snapshot: BankSnapshot? { store.bankSnapshots.first { "production:" + $0.id == account.bankAccountKey } }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack { Text(account.name).font(.headline); Spacer(); Image(systemName: account.isCash == true ? "banknote" : "building.columns") }
+            Text(snapshot?.availableCents != nil ? "BANK AVAILABLE · CACHED" : "RECORDED AVAILABLE").font(.system(.caption, design: .monospaced))
+            MoneyText(amount: snapshot?.availableCents ?? account.available).font(.system(.largeTitle, design: .serif)).minimumScaleFactor(0.7)
+            if let snapshot {
+                Text("Retrieved \(snapshot.retrievedAt.formatted(date: .abbreviated, time: .shortened))").font(.caption)
+                Text(Date().timeIntervalSince(snapshot.retrievedAt) > 900 ? "Stale retrieval · pull down to retry. Bank update time unknown." : "Bank update time unknown. Pending purchases may be missing.").font(.caption)
+                Text("Ledger after manual entries: \(Money.format(account.available))").font(.caption)
+            } else {
+                Text("Recorded \((account.snapshotAt ?? account.updated).formatted(date: .abbreviated, time: .shortened))").font(.caption)
+                Text(account.bankAccountKey == nil ? "Manual balance · update when needed" : "Saved snapshot · not a live bank balance").font(.caption)
             }
-            Text(ledger.isDemo ? "SAMPLE DATA · NOT YOUR BANK BALANCE" : "RECORDED BALANCES · BILLS RESERVED FOR 30 DAYS").font(.system(.caption2, design: .monospaced)).opacity(0.85)
-        }.padding(24).foregroundStyle(Color(red: 0.97, green: 0.96, blue: 0.90)).background {
-            ZStack { Color(red: 0.08, green: 0.23, blue: 0.18); Engraving(light: true).mask(LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)) }
-        }.clipShape(RoundedRectangle(cornerRadius: 22)).overlay(RoundedRectangle(cornerRadius: 22).inset(by: 7).stroke(.white.opacity(0.22), lineWidth: 0.5))
+        }.frame(maxWidth: .infinity, minHeight: 210, alignment: .leading).padding(22)
+            .foregroundStyle(.white).background { ZStack { Ink.green; Engraving(light: true).opacity(0.35) } }
+            .clipShape(RoundedRectangle(cornerRadius: 22))
     }
 }

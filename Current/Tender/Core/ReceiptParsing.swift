@@ -1,0 +1,78 @@
+import Foundation
+
+public struct ReceiptLine: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID = UUID()
+    public var name: String
+    public var quantity: Int = 1
+    public var total: Int64
+}
+public struct ReceiptDetails: Codable, Equatable, Sendable {
+    public var merchant: String?
+    public var total: Int64?
+    public var date: Date?
+    public var payment: String?
+    public var items: [ReceiptLine] = []
+    public var itemCount: Int { items.reduce(0) { $0 + $1.quantity } }
+}
+public enum ReceiptParser {
+    static func capture(_ pattern: String, _ text: String, group: Int = 1) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: group), in: text) else { return nil }
+        return String(text[range])
+    }
+    public static func parse(_ text: String) -> ReceiptDetails {
+        let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        var receipt = ReceiptDetails()
+        receipt.merchant = lines.prefix(6).first { $0.rangeOfCharacter(from: .letters) != nil &&
+            $0.range(of: #"\b(receipt|invoice|welcome|tel|phone|www|http)\b"#, options: .regularExpression.union(.caseInsensitive)) == nil &&
+            $0.count < 80 && !$0.contains("@") }
+        for (index, line) in lines.enumerated() {
+            let amountText = capture(#"\$?\s*(\d{1,7}(?:,\d{3})*\.\d{2})\s*[A-Z]?$"#, line)?.replacingOccurrences(of: ",", with: "")
+            let amount = amountText.flatMap(Money.cents)
+            let lower = line.lowercased()
+            if lower.range(of: #"^(grand\s+total|total|amount\s+due|balance\s+due)(?:\s*:?\s*\$?\s*\d|:?\s*$)"#, options: .regularExpression) != nil {
+                receipt.total = amount ?? (index + 1 < lines.count ? capture(#"^\$?\s*(\d+\.\d{2})$"#, lines[index + 1]).flatMap(Money.cents) : nil)
+                continue
+            }
+            // Preserve only payment type and last four digits; never raw card numbers.
+            if let kind = capture(#"\b(visa|mastercard|amex|discover|debit|credit|cash)\b"#, line) {
+                let lastFour = capture(#"(?:\*{2,}|x{2,}|ending\s*(?:in)?\s*)(\d{4})\b"#, lower)
+                receipt.payment = kind.capitalized + (lastFour.map { " ··" + $0 } ?? "")
+            }
+            if receipt.date == nil, let value = capture(#"\b(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})\b"#, line) {
+                for format in ["MM/dd/yyyy", "MM/dd/yy", "yyyy-MM-dd"] {
+                    let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = format; f.isLenient = false
+                    if let date = f.date(from: value) { receipt.date = date; break }
+                }
+            }
+            if let amount, amount > 0,
+               lower.range(of: #"\b(total|tax|change|cash|visa|mastercard|amex|discover|debit|credit|payment|balance|savings|discount|tender|auth|tip|subtotal)\b"#, options: .regularExpression) == nil,
+               let name = capture(#"^(.+?)\s+\$?\d[\d,]*\.\d{2}\s*[A-Z]?$"#, line), name.rangeOfCharacter(from: .letters) != nil {
+                let quantity = capture(#"^(\d{1,3})\s*[xX]\s+"#, name).flatMap(Int.init) ?? 1
+                let cleanName = name.replacingOccurrences(of: #"^\d{1,3}\s*[xX]\s+"#, with: "", options: .regularExpression)
+                receipt.items.append(ReceiptLine(name: cleanName, quantity: max(1, quantity), total: amount))
+            }
+        }
+        return receipt
+    }
+}
+public struct ShelfLabel: Sendable {
+    public var name: String?
+    public var price: Int64?
+    public var unit: String?
+    public var needsReview: Bool = true
+}
+public enum ShelfLabelParser {
+    public static func parse(_ text: String) -> ShelfLabel {
+        let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let name = lines.first { $0.rangeOfCharacter(from: .letters) != nil &&
+            $0.range(of: #"\b(unit price|save|member|sale|price|per)\b"#, options: .regularExpression.union(.caseInsensitive)) == nil }
+        let priceLines = lines.filter { $0.range(of: #"\b(per|unit price|save)\b|/\s*(oz|lb|kg|100)"#, options: .regularExpression.union(.caseInsensitive)) == nil }
+        let amounts = priceLines.compactMap { ReceiptParser.capture(#"\$?\b(\d{1,6}\.\d{2})\b"#, $0).flatMap(Money.cents) }
+        // Ambiguous multiple prices and multi-buy deals need explicit selection.
+        let deal = text.range(of: #"\d+\s*(for|/)\s*\$?\d"#, options: .regularExpression.union(.caseInsensitive)) != nil
+        return ShelfLabel(name: name, price: Set(amounts).count == 1 && !deal ? amounts.first : nil,
+            unit: ReceiptParser.capture(#"\b(\d+(?:\.\d+)?\s*(?:fl\s*oz|oz|lb|kg|ml|liters?|ct))\b"#, text))
+    }
+}

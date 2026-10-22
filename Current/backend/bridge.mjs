@@ -1,3 +1,4 @@
+import { syncItem, safeDiagnostic } from './transactions.mjs';
 import { randomBytes, createCipheriv, createDecipheriv, timingSafeEqual, randomUUID } from 'node:crypto';
 
 export function cents(value) {
@@ -99,7 +100,10 @@ export async function createBridge(config, storage, request = fetch) {
       if (req.method === 'POST' && route === '/v1/hosted-link') {
         const input = await body(req);
         const pending = state.sessions.find(s => !s.done && s.expires > Date.now());
-        if (pending) return send(200, { id: pending.id, url: pending.url, expiresAt: new Date(pending.expires).toISOString() });
+        if (pending) {
+          if ((input.itemID ?? null) !== pending.itemID) return send(409, { error: 'Finish or resume the existing browser session before starting a different bank connection.' });
+          return send(200, { id: pending.id, url: pending.url, expiresAt: new Date(pending.expires).toISOString() });
+        }
         const updating = input.itemID !== undefined;
         const item = updating ? state.items.find(i => i.id === input.itemID) : null;
         if (updating && !item) return send(404, { error: 'Bank connection not found. Reload your connections.' });
@@ -137,6 +141,7 @@ export async function createBridge(config, storage, request = fetch) {
         await saveSession({ lastChecked: Date.now() });
         const result = await plaid('/link/token/get', { link_token: session.token });
         const flows = result.link_sessions ?? [];
+        const diagnostic = safeDiagnostic(flows.at(-1));
         if (session.itemID) {
           if (flows.some(flow => flow.on_success != null)) {
             await saveSession({ done: true, token: null, url: null });
@@ -155,7 +160,7 @@ export async function createBridge(config, storage, request = fetch) {
             const name = typeof addition.institution?.name === 'string' ? addition.institution.name.slice(0, 100) : null;
             const nextSession = { ...session, exchanging: false, completed: [...session.completed, publicToken] };
             try {
-              await persist({ ...state, items: [...state.items.filter(i => i.id !== linked.item_id), { id: linked.item_id, token: linked.access_token, name }],
+              await persist({ ...state, items: [...state.items.filter(i => i.id !== linked.item_id), { ...state.items.find(i => i.id === linked.item_id), id: linked.item_id, token: linked.access_token, name }],
                 sessions: state.sessions.map(s => s.id === session.id ? nextSession : s) });
               session = nextSession;
             } catch {
@@ -168,7 +173,7 @@ export async function createBridge(config, storage, request = fetch) {
             return send(200, { status: 'connected' });
           }
         }
-        return send(200, { status: Date.now() > session.expires ? 'expired' : flows.some(f => f.finished_at && f.on_exit) ? 'cancelled' : 'pending' });
+        return send(200, { status: diagnostic.code ? 'failed' : Date.now() > session.expires ? 'expired' : flows.some(f => f.finished_at && (f.exit || f.on_exit)) ? 'cancelled' : 'pending', diagnostic });
       }
       if (req.method === 'GET' && route === '/v1/connections') {
         return send(200, { connections: state.items.map((item, index) => ({ id: item.id, name: item.name || `Bank connection ${index + 1}` })) });
@@ -179,7 +184,7 @@ export async function createBridge(config, storage, request = fetch) {
         const result = await plaid('/item/public_token/exchange', { public_token: input.publicToken });
         // Institution names are display labels only, never authorization inputs.
         const name = typeof input.institutionName === 'string' ? input.institutionName.trim().slice(0, 100) : null;
-        const next = { ...state, items: [...state.items.filter(i => i.id !== result.item_id), { id: result.item_id, token: result.access_token, name }] };
+        const next = { ...state, items: [...state.items.filter(i => i.id !== result.item_id), { ...state.items.find(i => i.id === result.item_id), id: result.item_id, token: result.access_token, name }] };
         try { await persist(next); }
         catch { // Do not orphan a live Item that this server cannot later disconnect.
           try { await plaid('/item/remove', { access_token: result.access_token }); } catch { /* Caller sees a recovery error; no secrets are logged. */ }
@@ -208,6 +213,26 @@ export async function createBridge(config, storage, request = fetch) {
         }
         if (fresh) await persist({ ...state, lastRefresh: Date.now() });
         return send(200, { accounts, errors, cached: !fresh, environment: config.env });
+      }
+      if ((req.method === 'GET' && route === '/v1/transactions') || (req.method === 'POST' && route === '/v1/transactions/sync')) {
+        const errors = [];
+        if (req.method === 'POST' && Date.now() - (state.lastTransactionCheck ?? 0) >= 60000) {
+          // Persist throttle before calling Plaid; failures must not cause a hot retry loop.
+          await persist({ ...state, lastTransactionCheck: Date.now() });
+          const items = await Promise.all(state.items.map(async item => {
+            try { return await syncItem(item, config.env, plaid); }
+            catch (error) {
+              errors.push({ itemID: item.id, message: error.providerCode === 'ITEM_LOGIN_REQUIRED'
+                ? 'Bank login needs repair. Previous activity is retained.'
+                : 'Bank activity could not update. Previous activity is retained.' });
+              return item;
+            }
+          }));
+          await persist({ ...state, items });
+        }
+        return send(200, { environment: config.env, errors,
+          items: state.items.map(i => ({ id: i.id, checkedAt: i.transactionsCheckedAt ?? null,
+            transactions: i.transactions ?? [] })) });
       }
       if (req.method === 'DELETE' && route === '/v1/connections') {
         const remaining = [];

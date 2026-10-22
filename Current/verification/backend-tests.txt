@@ -1,0 +1,37 @@
+✔ browser setup does not require a paid Apple native redirect (1.480538ms)
+✔ hosted sessions are authenticated, reused and restored after restart (11.44854ms)
+✔ finishing uses stored session ownership and exchanges exactly once across restarts (8.441939ms)
+✔ redirect or unfinished flow alone does not create a linked bank (2.551302ms)
+✔ browser repair uses original item and never exchanges update-mode tokens (1.640911ms)
+✔ failed storage after exchange revokes new item and stops unsafe retries (6.485697ms)
+✔ untrusted hosted URLs and environment-mismatched storage fail closed (1.069357ms)
+✔ fresh balance throttling survives a process restart (2.236861ms)
+✔ current exit metadata returns a safe failed diagnostic without exchanging (1.643845ms)
+✔ starting repair does not silently reuse a different pending new-bank session (1.26304ms)
+✔ available balances preserve unknown values and exclude credit and foreign cash (1.324433ms)
+✔ bank token storage is authenticated encryption (2.23549ms)
+✔ unauthorized callers cannot trigger provider calls; linked tokens never leave backend (56.842207ms)
+✔ repair login reuses the saved Item without products or another token exchange (18.339676ms)
+✔ unknown connection repairs and malformed bodies never reach Plaid (16.5407ms)
+✔ new links request transactions but do not attach an existing access token (6.025311ms)
+✔ saved connections survive restart; cached and fresh balances use different endpoints (17.954417ms)
+✔ failed disconnects remain available for repair and retry (16.341118ms)
+✔ multiple banks and their accounts survive restart and remain separate (15.194135ms)
+✔ one expired bank login does not hide accounts from another bank (8.909291ms)
+✔ sync replaces pending, applies modifications/removals, preserves refund signs and transfers (3.343125ms)
+✔ mutation restarts from original cursor and discards the unsuccessful window (0.553828ms)
+✔ page failure never mutates the stored cursor or history (0.521829ms)
+✔ diagnostic supports current/legacy exit and allowlists identifiers only (0.35018ms)
+✔ bank sync is authenticated, retains failed banks, and throttles across restart (8.191976ms)
+✔ vault migrates legacy ciphertext, handles large history, and removes stale chunks (11.695645ms)
+✔ incomplete encrypted vault fails closed (0.757826ms)
+✔ deletion removes transaction caches with revoked items and retains failures for retry (1.755604ms)
+✔ failed chunk transaction leaves the previous encrypted vault readable (4.434786ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 273.064942

@@ -107,3 +107,16 @@ test('fresh balance throttling survives a process restart', async () => {
   await h.restart();
   assert.equal((await h.api('/v1/balances/refresh', 'POST')).status, 429);
 });
+test('current exit metadata returns a safe failed diagnostic without exchanging', async () => {
+ const h=await harness(async endpoint=>endpoint==='/link/token/create'?creation:{link_sessions:[{finished_at:'2026-10-21T00:00:00Z',link_session_id:'session-1',exit:{error:{error_code:'INSTITUTION_DOWN',error_type:'INSTITUTION_ERROR',request_id:'request-1',error_message:'private input must not escape'}}}]});
+ const started=await h.api('/v1/hosted-link','POST',{});
+ const result=await h.api('/v1/hosted-link/finish','POST',{sessionID:started.body.id});
+ assert.equal(result.body.status,'failed'); assert.equal(result.body.diagnostic.code,'INSTITUTION_DOWN');
+ assert.ok(!JSON.stringify(result).includes('private input')); assert.equal(h.read().items.length,0);
+});
+test('starting repair does not silently reuse a different pending new-bank session', async () => {
+ const h=await harness(provider,{environment:'production',items:[{id:'saved',token:'private'}],sessions:[]});
+ await h.api('/v1/hosted-link','POST',{});
+ const result=await h.api('/v1/hosted-link','POST',{itemID:'saved'});
+ assert.equal(result.status,409); assert.equal(h.calls.length,1);
+});

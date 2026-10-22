@@ -25,3 +25,6 @@ Current/backend/secrets*.json
 # Imported handoff artifacts and recoverable local source snapshots
 /Archives/V3/
 /Archives/snapshots/
+
+# Separate collaborator copy retained locally; Current is the active project
+/Merged/

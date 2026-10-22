@@ -1,3 +1,11 @@
+# v4 — Personal feature testing source (October 21, 2026)
+
+Implements the personal-stage requests listed in Current/docs/feature-status.md.
+29 mock backend tests passed; Mac/iPhone validation remains required.
+Original v3 source remains in the input handoff ZIP/version history.
+
+---
+
 # Tender source versions
 
 Organized October 21, 2026. These are source-history labels, separate from the installed app's version number.

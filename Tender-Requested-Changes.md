@@ -1,3 +1,36 @@
+## October 21, 2026 — personal feature implementation update
+
+The user authorized implementation in this continuation and then chose to test
+the personal app first. Friends will connect real banks later, after separate
+sign-ins and bank-data isolation are implemented. The older planning-only
+instructions below are historical and superseded for this personal stage.
+
+Current source-history label: **v4 personal testing source**. Open
+`Current/Tender.xcodeproj`. Read `Current/docs/personal-test-guide.md` before
+installing, and `Current/docs/feature-status.md` for all 18 requested items.
+
+Implemented source includes wallet account cards, bank transaction import and
+review/matching, foreground cached-bank checks, structured receipt parsing and
+original-image retention, cash wallets, shelf-price suggestions, dated shopping
+plans, local speech planning/reminders, recurring suggestions, reorganized
+navigation/Settings, larger input targets, backup-first deletion, and restore
+reauthorization. Capital One now has safe diagnostics; its actual failure is
+not confirmed fixed. Consumer authentication/isolation and native iCloud
+containers remain deferred.
+
+29 mocked backend tests passed in this environment. The 29 Swift core tests,
+8 updated UI tests, and iOS build were not run because Swift/Xcode are absent.
+The Cloudflare runtime test could not run because npm dependency retrieval was
+blocked (HTTP 403). No deployment, live bank calls, data deletion or paid-service
+change occurred. Source is ready for Mac validation, not a verified release.
+
+The vault adapter now migrates legacy encrypted state into atomic encrypted
+chunks to fit transaction history. Preserve the existing keys/vault identity.
+Do not downgrade to the old vault reader after migration. The old automatic
+legacy-ledger reset was retired so existing entries are preserved.
+
+---
+
 # Tender — latest requested changes (planning backlog)
 
 Captured October 21, 2026. **These requests are not implemented in this archive.** The user explicitly asked for a planning session, not feature code. Creating this handoff ZIP does not authorize starting implementation. Review and clarify the plan with the user before making feature changes.

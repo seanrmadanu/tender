@@ -1,3 +1,15 @@
+# Current verification — v4 personal testing source
+
+October 21, 2026: 29 mock Node backend tests passed. See
+`../verification/backend-tests.txt`. Swift core/UI tests and the app build
+were not run here (no Swift/Xcode). The updated Cloudflare runtime test is
+unrun: npm ci failed with registry HTTP 403. No production deployment or live
+provider requests occurred. Read `personal-test-guide.md` and `feature-status.md`.
+
+Older verification below describes earlier revisions, not these changes.
+
+---
+
 # Verification — October 21, 2026
 
 The active project in `Money app/Current/` now contains the V2 continuation plus the current fixes. Historical snapshots now live separately in `Money app/Archives/`. The pre-integration root source is preserved under ignored `build/before-v2-integration/`.

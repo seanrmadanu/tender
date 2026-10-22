@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import QuickLook
+import ImageIO
 
 struct ActivityView: View {
     @Environment(LedgerStore.self) private var store
@@ -22,6 +23,8 @@ struct ActivityView: View {
     }
     var body: some View {
         PaperScreen {
+            NavigationLink { ReportView() } label: { Label("Reports", systemImage: "chart.xyaxis.line") }
+            NavigationLink { BankActivityView() } label: { Label("Bank Activity", systemImage: "building.columns") }
             Picker("Activity type", selection: $section) { Text("Expenses").tag(0); Text("Recurring").tag(1) }.pickerStyle(.segmented)
             if section == 0 {
                 SectionHeading(title: "The everyday details.", subtitle: "Your expenses, with their paper trail.")
@@ -42,7 +45,7 @@ struct ActivityView: View {
             } else { RecurringList() }
         }.navigationTitle("Activity")
             .searchable(text: $search, prompt: "Merchant or bill text")
-            .toolbar { Button { sheet = section == 0 ? .expense : .recurring } label: { Label(section == 0 ? "Add expense" : "Add recurring payment", systemImage: "plus") } }
+            .bottomAdd(section == 0 ? "Add expense" : "Add recurring payment") { sheet = section == 0 ? .expense : .recurring }
             .sheet(item: $selected) { e in NavigationStack { ExpenseDetail(expense: e) } }
     }
 }
@@ -101,6 +104,13 @@ struct ExpenseForm: View {
     var initialAmount: String = ""
     var initialCategory: UUID? = nil
     var initialAccount: UUID? = nil
+    var initialMerchant: String = ""
+    var groceryID: UUID? = nil
+    @State private var cash = false
+    @State private var cashAccount: UUID?
+    @State private var receipt = ReceiptDetails()
+    @State private var hasReceipt = false
+    @State private var initialized = false
     @State private var merchant = ""
     @State private var amount = ""
     @State private var category: UUID?
@@ -115,19 +125,26 @@ struct ExpenseForm: View {
     @State private var camera = false
     @State private var reading = false
     @State private var readError: String?
-    private var valid: Bool { !merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (Money.cents(amount) ?? 0) > 0 && category != nil && account != nil && !reading }
+    private var valid: Bool { !merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (Money.cents(amount) ?? 0) > 0 && category != nil && (cash || account != nil) && !reading }
     var body: some View {
         Form {
-            if store.ledger.accounts.isEmpty { Section { Text("Add a manual account balance from Overview before recording an expense.").foregroundStyle(Ink.warning) } }
+
             Section("Expense") {
-                TextField("Merchant or description", text: $merchant)
-                TextField("Amount (USD)", text: $amount).keyboardType(.decimalPad)
+                TenderField("Merchant or description", text: $merchant)
+                TenderField("Amount (USD)", text: $amount).keyboardType(.decimalPad)
                 Picker("Category", selection: $category) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }
-                Picker("Paid from", selection: $account) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.accounts) { Text($0.name).tag(Optional($0.id)) } }
+                Toggle("Paid with cash", isOn: $cash)
+                if !cash { Picker("Paid from", selection: $account) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.accounts.filter { $0.isCash != true }) { Text($0.name).tag(Optional($0.id)) } } }
+                if cash {
+                    if store.ledger.accounts.contains(where: { $0.isCash == true }) {
+                        Picker("Cash wallet", selection: $cashAccount) { ForEach(store.ledger.accounts.filter { $0.isCash == true }) { Text($0.name).tag(Optional($0.id)) } }
+                    } else { Text("A cash wallet will be created with a zero opening balance. Set the amount you actually hold in Settings → Accounts.").font(.footnote) }
+                }
                 DatePicker("Date", selection: $date, in: ...Date(), displayedComponents: .date)
-                TextField("Notes", text: $note, axis: .vertical)
+                TenderField("Notes", text: $note, axis: .vertical)
             }
-            Section { Toggle("Deduct from current balance", isOn: $deductFromBalance) } footer: { Text("Turn this off when entering an older expense that is already reflected in your current balance.") }
+            Section { Toggle("Deduct from current balance", isOn: $deductFromBalance) } footer: { Text("Leave this off for a purchase already reflected in a bank balance. Cash purchases deduct only from your cash wallet; set its opening balance in Settings → Accounts.") }
+            if hasReceipt { ReceiptSummary(details: $receipt) }
             Section {
                 PhotosPicker(selection: $photo, matching: .images) { Label("Choose Bill Photo", systemImage: "photo") }
                 if UIImagePickerController.isSourceTypeAvailable(.camera) { Button { camera = true } label: { Label("Photograph Bill", systemImage: "camera") } }
@@ -135,10 +152,12 @@ struct ExpenseForm: View {
                 if reading { ProgressView("Reading bill on device…") }
                 if attachment != nil { Label("Bill attached (\(attachmentExt.uppercased()))", systemImage: "checkmark.circle"); Button("Remove Attachment", role: .destructive) { attachment = nil } }
                 if let readError { Text(readError).foregroundStyle(Ink.warning) }
-            } header: { Text("Paper trail") } footer: { Text("Photo text is copied into notes for your review. Confirm the merchant and amount yourself. PDFs are stored as attachments. Nothing is sent to an AI service.") }
+            } header: { Text("Paper trail") } footer: { Text("Photos prefill recognized details for review. Check the total, date and payment method before saving. The receipt image is retained; PDFs are retained as attachments. Recognition runs on device.") }
         }.paperForm().navigationTitle("Add Expense").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(!valid) } }
-            .onAppear { amount = initialAmount; category = initialCategory; account = initialAccount ?? store.ledger.accounts.first?.id }
+            .onAppear { guard !initialized else { return }; initialized = true; amount = initialAmount; merchant = initialMerchant; category = initialCategory; account = initialAccount ?? store.ledger.accounts.first(where: { $0.isCash != true })?.id; cash = store.ledger.accounts.first(where: { $0.id == initialAccount })?.isCash == true; cashAccount = cash ? initialAccount : store.ledger.accounts.first(where: { $0.isCash == true })?.id; deductFromBalance = cash || store.ledger.accounts.first(where: { $0.id == account })?.bankAccountKey == nil }
+            .onChange(of: account) { _, id in deductFromBalance = store.ledger.accounts.first(where: { $0.id == id })?.bankAccountKey == nil }
+            .onChange(of: cash) { _, value in deductFromBalance = value || store.ledger.accounts.first(where: { $0.id == account })?.bankAccountKey == nil }
             .onChange(of: photo) { _, item in Task { do { if let data = try await item?.loadTransferable(type: Data.self) { await handlePhoto(data) } } catch { readError = "Couldn’t load this photo. Choose another image." } } }
             .fileImporter(isPresented: $imported, allowedContentTypes: [.pdf, .image]) { result in
                 do {
@@ -152,18 +171,42 @@ struct ExpenseForm: View {
             .sheet(isPresented: $camera) { CameraPicker { data in Task { await handlePhoto(data) } } }
     }
     private func handlePhoto(_ data: Data) async {
-        guard let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.8), jpeg.count <= 20_000_000 else { readError = "Choose a supported photo under 20 MB."; return }
-        attachment = jpeg; attachmentExt = "jpg"; reading = true; readError = nil
+        guard data.count <= 20_000_000, UIImage(data: data) != nil else { readError = "Choose a supported photo under 20 MB."; return }
+        attachment = data
+        if let source = CGImageSourceCreateWithData(data as CFData, nil), let type = CGImageSourceGetType(source) { attachmentExt = UTType(type as String)?.preferredFilenameExtension ?? "jpg" }
+        else { attachmentExt = "jpg" }; reading = true; readError = nil
         defer { reading = false }
-        do { let text = try await ReceiptOCR.read(jpeg); if !text.isEmpty { note += (note.isEmpty ? "" : "\n") + "Bill text (review):\n" + text } else { readError = "No text found. You can still save the image and enter the details." } }
+        do {
+            let text = try await ReceiptOCR.read(data)
+            receipt = ReceiptParser.parse(text); hasReceipt = true
+            if let value = receipt.merchant { merchant = value }
+            if let value = receipt.total { amount = Money.input(value) }
+            if let value = receipt.date, value <= Date() { date = value }
+            if receipt.payment?.lowercased().contains("cash") == true { cash = true }
+            if text.isEmpty { readError = "No text found. Enter the details manually; your image is attached." }
+        }
         catch { readError = "Text couldn’t be read. Your photo is still attached." }
     }
     private func save() {
-        guard let cents = Money.cents(amount), let category, let account else { return }
+        guard valid, let cents = Money.cents(amount), let category else { return }
         var file: String?
         do { if let attachment { file = try store.attach(attachment, extension: attachmentExt) } }
         catch { readError = "Couldn’t save the attachment. Free storage and try again."; return }
-        if store.update({ try $0.record(Expense(merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), amount: cents, categoryID: category, accountID: account, date: date, note: note, attachment: file), deductFromBalance: deductFromBalance) }) { dismiss() }
+        if store.update({ ledger in
+            if let groceryID, ledger.groceries.first(where: { $0.id == groceryID })?.expenseID != nil { throw LedgerError.invalidExpense }
+            let paidFrom: UUID
+            if cash {
+                if let wallet = ledger.accounts.first(where: { $0.isCash == true && ($0.id == cashAccount || cashAccount == nil) }) { paidFrom = wallet.id }
+                else { let wallet = Account(name: "Cash wallet", available: 0, isCash: true); ledger.accounts.append(wallet); paidFrom = wallet.id }
+            } else { guard let account else { throw LedgerError.invalidExpense }; paidFrom = account }
+            var reviewedReceipt = receipt; reviewedReceipt.merchant = merchant; reviewedReceipt.total = cents; reviewedReceipt.date = date
+            if cash { reviewedReceipt.payment = "Cash" }
+            let expense = Expense(merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), amount: cents, categoryID: category, accountID: paidFrom, date: date, note: note, attachment: file, receipt: hasReceipt ? reviewedReceipt : nil)
+            try ledger.record(expense, deductFromBalance: deductFromBalance)
+            if let groceryID, let i = ledger.groceries.firstIndex(where: { $0.id == groceryID }) {
+                ledger.groceries[i].expenseID = expense.id; ledger.groceries[i].purchasedAt = date; ledger.groceries[i].checked = true; ledger.groceries[i].remind = false
+            }
+        }) { Task { await store.refreshReminders() }; dismiss() }
         else if let file { try? FileManager.default.removeItem(at: store.attachmentURL(file)) }
     }
 }
@@ -178,6 +221,7 @@ struct ExpenseDetail: View {
         Form {
             Section { LabeledContent("Merchant", value: expense.merchant); LabeledContent("Amount", value: Money.format(expense.amount)); LabeledContent("Date", value: expense.date.formatted(date: .abbreviated, time: .omitted)); LabeledContent("Account", value: store.ledger.accounts.first { $0.id == expense.accountID }?.name ?? "Unknown") }
             Section("Category") { Picker("Envelope", selection: $category) { ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }; Button("Save Category") { if store.update({ ledger in if let i = ledger.expenses.firstIndex(where: { $0.id == expense.id }), let category { ledger.expenses[i].categoryID = category } }) { dismiss() } } }
+            if let receipt = expense.receipt { ReceiptSummary(details: .constant(receipt), editable: false) }
             if !expense.note.isEmpty { Section("Notes & extracted text") { Text(expense.note).textSelection(.enabled) } }
             if let attachment = expense.attachment { Section("Bill") { Button("View Attached Bill") {
                 let url = store.attachmentURL(attachment)
@@ -202,5 +246,50 @@ struct CameraPicker: UIViewControllerRepresentable {
         init(parent: CameraPicker) { self.parent = parent }
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) { if let image = info[.originalImage] as? UIImage, let data = image.jpegData(compressionQuality: 0.8) { parent.onCapture(data) }; parent.dismiss() }
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+
+struct ReceiptSummary: View {
+    @Binding var details: ReceiptDetails
+    var editable = true
+    @State private var editing: ReceiptLine?
+    var body: some View {
+        Section("Recognized receipt · review") {
+            if let payment = details.payment { LabeledContent("Payment", value: payment) }
+            LabeledContent("Recognized item count", value: "\(details.itemCount)")
+            ForEach(details.items) { item in
+                Button { if editable { editing = item } } label: {
+                    HStack { Text("\(item.quantity) × \(item.name)"); Spacer(); Text(Money.format(item.total)).monospacedDigit(); if editable { Image(systemName: "pencil") } }
+                }.buttonStyle(.plain)
+            }
+            Text("OCR may miss items, quantities, discounts or tax. Tap an item to correct it before saving. The expense total above is the amount recorded; line items are a reference, not a second deduction.").font(.footnote).foregroundStyle(.secondary)
+        }.sheet(item: $editing) { line in
+            NavigationStack { ReceiptLineEditor(line: line) { replacement in
+                if let index = details.items.firstIndex(where: { $0.id == replacement.id }) { details.items[index] = replacement }
+            } }
+        }
+    }
+}
+struct ReceiptLineEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let line: ReceiptLine
+    var save: (ReceiptLine) -> Void
+    @State private var name = ""
+    @State private var price = ""
+    @State private var quantity = 1
+    var body: some View {
+        Form {
+            TenderField("Item", text: $name)
+            Stepper("Quantity: \(quantity)", value: $quantity, in: 1...999)
+            TenderField("Line total (USD)", text: $price).keyboardType(.decimalPad)
+        }.paperForm().navigationTitle("Receipt Item")
+            .onAppear { name = line.name; price = Money.input(line.total); quantity = line.quantity }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") {
+                    guard let amount = Money.cents(price), amount > 0 else { return }
+                    var copy = line; copy.name = name; copy.quantity = quantity; copy.total = amount; save(copy); dismiss()
+                }.disabled(name.isEmpty || (Money.cents(price) ?? 0) <= 0) }
+            }
     }
 }

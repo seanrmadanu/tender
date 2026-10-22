@@ -25,7 +25,7 @@ struct BudgetView: View {
             }
             Text("Budgets reset by calendar month. Unspent allocations don’t roll over. Adding an expense always uses your chosen category.").font(.footnote).foregroundStyle(Ink.muted)
         }.navigationTitle("Budgets")
-            .toolbar { Button { adding = true } label: { Label("Add category", systemImage: "plus") } }
+            .bottomAdd("Add category") { adding = true }
             .sheet(item: $editing) { category in NavigationStack { CategoryForm(category: category) } }
             .sheet(isPresented: $adding) { NavigationStack { CategoryForm(category: nil) } }
     }
@@ -40,7 +40,7 @@ struct CategoryForm: View {
     private let symbols = ["tag", "carrot", "cup.and.saucer", "bag", "tram", "house", "heart", "airplane", "graduationcap", "gift"]
     var body: some View {
         Form {
-            Section("Envelope") { TextField("Category name", text: $name); TextField("Monthly allocation (USD)", text: $amount).keyboardType(.decimalPad); Picker("Icon", selection: $symbol) { ForEach(symbols, id: \.self) { Label($0, systemImage: $0).tag($0) } } }
+            Section("Envelope") { TenderField("Category name", text: $name); TenderField("Monthly allocation (USD)", text: $amount).keyboardType(.decimalPad); Picker("Icon", selection: $symbol) { ForEach(symbols, id: \.self) { Label($0, systemImage: $0).tag($0) } } }
             Section { Text("An allocation is a spending limit, not a transfer or an expense.").foregroundStyle(.secondary) }
         }.paperForm().navigationTitle(category == nil ? "New Category" : "Edit Category").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || Money.cents(amount) == nil) } }
@@ -61,6 +61,8 @@ struct ShoppingView: View {
     @State private var amount = ""
     @State private var categoryID: UUID?
     @State private var record = false
+    @State private var cart = false
+    @State private var itemName = ""
     private var category: BudgetCategory? { store.ledger.categories.first { $0.id == categoryID } }
     private var decision: ShoppingDecision? { guard let c = category, let value = Money.cents(amount), value > 0 else { return nil }; return store.ledger.shopping(amount: value, category: c) }
     var body: some View {
@@ -68,8 +70,9 @@ struct ShoppingView: View {
             ZStack { Engraving().frame(height: 90); Image(systemName: "bag").font(.system(size: 34)).padding(20).background(Ink.paper, in: Circle()) }
             SectionHeading(title: "A moment before checkout.", subtitle: "Check the numbers. Then make the call.")
             PaperCard {
+                TenderField("Item or purchase name", text: $itemName)
                 Text("PLANNED PURCHASE").font(.system(.caption, design: .monospaced)).tracking(1.5).foregroundStyle(Ink.muted)
-                HStack(alignment: .firstTextBaseline) { Text("$").font(.largeTitle); TextField("0.00", text: $amount).keyboardType(.decimalPad).font(.system(.largeTitle, design: .serif)).accessibilityLabel("Purchase amount in US dollars") }
+                HStack(alignment: .firstTextBaseline) { Text("$").font(.largeTitle); TenderField("0.00", text: $amount).keyboardType(.decimalPad).font(.system(.largeTitle, design: .serif)).accessibilityLabel("Purchase amount in US dollars") }
                 Picker("Category", selection: $categoryID) { Text("Choose an envelope").tag(UUID?.none); ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }.pickerStyle(.menu)
             }
             if let decision {
@@ -80,13 +83,15 @@ struct ShoppingView: View {
                     AmountRow(label: "Cash after purchase & bills", amount: decision.cashAfter)
                     Text(decision.fits ? "This amount fits both checks using your recorded balances." : "The purchase exceeds your category allocation, cash after bills, or both.").font(.subheadline).foregroundStyle(Ink.muted)
                 }
-                Button("Record This Purchase") { record = true }.buttonStyle(PrimaryButton()).disabled(!decision.hasAccount)
+                Button("Add to Cart") { cart = true }.buttonStyle(PrimaryButton())
+                Button("Record Purchase") { record = true }.buttonStyle(PrimaryButton()).disabled(!decision.hasAccount)
             } else { Text("Enter an amount and choose a category to see both checks.").font(.subheadline).foregroundStyle(Ink.muted) }
             Text("Cash uses recorded account snapshots, adjusted by your expenses, minus tracked bills due in the next 30 days. Unrecorded spending and pending charges may be missing. Checking does not reserve money.").font(.footnote).foregroundStyle(Ink.muted)
             if store.ledger.isDemo { Label("You’re checking sample data", systemImage: "sparkle").font(.footnote) }
         }.animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: decision != nil)
             .navigationTitle("Shopping Mode").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
-            .sheet(isPresented: $record) { NavigationStack { ExpenseForm(initialAmount: amount, initialCategory: categoryID) } }
+            .sheet(isPresented: $record) { NavigationStack { ExpenseForm(initialAmount: amount, initialCategory: categoryID, initialMerchant: itemName) } }
+            .sheet(isPresented: $cart) { NavigationStack { GroceryForm(initialName: itemName, initialPrice: amount) } }
     }
 }

@@ -14,8 +14,12 @@
 		</dict>
 	</array>
 	<key>UIFileSharingEnabled</key>
-	<true/>
+	<false/>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Turn your spoken shopping plan into an item, store and reminder time for review.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Listen while you dictate a shopping plan.</string>
 </dict>
 </plist>
