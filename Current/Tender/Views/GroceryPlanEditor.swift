@@ -18,7 +18,7 @@ struct GroceryPlanEditor: View {
         Form {
             Section("Shopping plan") {
                 TenderField("Item name", text: $name)
-                TenderField("Store (optional)", text: $shop)
+                TenderField("Store (optional)", text: $shop).accessibilityIdentifier("plan-store")
                 Stepper("Quantity: \(quantity)", value: $quantity, in: 1...999)
                 DatePicker("When", selection: $date)
                 Toggle("Remind me one hour before", isOn: $remind)

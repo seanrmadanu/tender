@@ -1,3 +1,41 @@
+# Verified locally — October 21, 2026
+
+Active source is `Current/`. No physical iPhone install, live bank requests,
+production Worker deployment, data wipe, or GitHub push occurred in this session.
+Private .env (0600), Worker configuration, Xcode signing project and shared scheme
+match their pre-import hashes.
+
+| Check | Result | Local evidence |
+| --- | --- | --- |
+| ZIP integrity and source manifest | Passed: CRC and every listed file hash | `Archives/V3/Tender-ChatGPT-Handoff.zip` |
+| Core Swift tests | **32/32 passed** | `build/v3-audit-core-tests.log` |
+| Node backend + Miniflare runtime | **30/30 passed** | `build/v3-import-backend-tests.log` |
+| iOS simulator build | Passed | `build/v3-restored-design-build.log` |
+| Full UI suite | 8/9 initially passed; new plan-editor test had an ambiguous duplicate field selector | `build/v3-audit-ui-tests.log` |
+| Focused UI rerun after selector fix and design restoration | **3/3 passed**, including the previously failing case; **all 9 distinct UI cases passed across these runs** | `build/v3-restored-design-ui-tests.log` |
+| Final shared-button check | **1/1 passed** after the large-text adjustment | `build/v3-final-button-test.log` |
+| Visual review | Home light/dark, populated and empty accounts, account details, Activity, Reports and large text | `docs/design-review.md`, `build/ui-restored-*.png` |
+
+The UI-test selector fix adds a stable accessibility identifier to the plan
+editor's store field, distinguishing it from the price-observation field behind
+the sheet. Assertions were retained: future cart visibility, edited store saved,
+and persistence after relaunch/date navigation.
+
+Simulator fixtures live in the separate TenderUITests ledger and Keychain
+namespace with automatic bank requests disabled. They do not represent the
+user's connected bank balances. No new sample values were added to the personal
+ledger.
+
+Unverified live/device paths: Capital One OAuth, transaction deployment and
+real history import, camera/OCR accuracy on real photos, microphone and speech,
+notification delivery, Files/iCloud backup/restore, and destructive deletion.
+Apple/Google sign-in, per-user server isolation and native iCloud sync remain
+incomplete; see `feature-status.md` and `remaining-setup.md`.
+
+---
+
+# Historical verification notes (superseded where noted above)
+
 # Current verification — v4 personal testing source
 
 October 21, 2026: 29 mock Node backend tests passed. See

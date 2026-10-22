@@ -1,3 +1,21 @@
+## Latest local status — October 21, 2026
+
+Work in **Current/Tender.xcodeproj**. V3 was imported with a recoverable pre-import
+checkpoint, then audited against all 18 requests. Original banknote styling was
+restored; Merged is a separate untouched collaborator copy. Core 32/32 and backend
+30/30 passed; all 9 distinct UI cases passed across the suite and focused retest.
+See [the 18-item status](Current/docs/feature-status.md),
+[verification](Current/docs/verification.md), and
+[remaining setup](Current/docs/remaining-setup.md).
+
+Five requests remain partial/setup-dependent: consumer onboarding, Capital One,
+native iCloud, Apple/Google sign-in, and online account deletion/isolation.
+Bank transaction code is local; its new Worker has not been deployed here.
+Checkpoint history is in VERSION-HISTORY.md; detailed changes are appended to
+Tender-change-log.log. Earlier notes below are retained as history.
+
+---
+
 ## October 21, 2026 — personal feature implementation update
 
 The user authorized implementation in this continuation and then chose to test

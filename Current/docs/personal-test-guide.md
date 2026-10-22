@@ -1,3 +1,22 @@
+# Latest local continuation
+
+October 21, 2026: the source is now integrated into `Current/` and compiled on
+this Mac. Core 32/32 and backend 30/30 passed; all nine distinct UI cases passed
+across the initial suite and focused retest. See `verification.md` for exact
+coverage. The original banknote styling was restored using our pre-import Git
+checkpoint and screenshots; `Merged/` remains untouched.
+
+Additional fixes: future plans open their saved date, plans can be edited,
+ambiguous same-line shelf prices require review, informal shopping speech parses
+correctly, receipt replacement clears previous recognition and bank removals
+clear linked purchase flags. Existing private configuration is preserved.
+
+The physical-device and deployment instructions below still apply. Earlier
+statements that Xcode/Swift were unavailable describe the incoming archive's
+origin environment, not the current verified Mac build.
+
+---
+
 # Personal testing build — October 21, 2026
 
 This update implements the personal-feature stage agreed in this conversation.

@@ -145,7 +145,7 @@ final class TenderUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["apples"].waitForExistence(timeout: 5))
         tap(app.buttons.containing(.staticText, identifier: "apples").firstMatch)
         tap(app.buttons["Edit Shopping Plan"])
-        let shop = app.textFields["Store (optional)"]
+        let shop = app.textFields["plan-store"]
         tap(shop); shop.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 6) + "Target")
         tap(app.navigationBars["Edit Shopping Plan"].buttons["Save"])
         XCTAssertTrue(app.staticTexts["Store, Target"].waitForExistence(timeout: 5))

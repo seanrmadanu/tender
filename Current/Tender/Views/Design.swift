@@ -164,16 +164,26 @@ struct TenderField: View {
     }
 }
 struct BottomAdd: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var textSize
     var title: String
     var identifier: String? = nil
     var enabled = true
     var action: () -> Void
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
-            Button(action: action) { Label(title, systemImage: "plus").font(.headline).padding(.horizontal, 18).frame(minHeight: 52) }
-                .foregroundStyle(.white).background(Ink.green, in: Capsule()).shadow(radius: 3, y: 2)
+            Button(action: action) {
+                if textSize.isAccessibilitySize {
+                    Image(systemName: "plus").font(.system(size: 24, weight: .semibold)).frame(width: 56, height: 56)
+                } else {
+                    Label(title, systemImage: "plus").font(.headline).padding(.horizontal, 18).frame(minHeight: 52)
+                }
+            }
+                .foregroundStyle(Ink.paper).background(Ink.green, in: RoundedRectangle(cornerRadius: 14))
+                .buttonStyle(.plain)
+                .shadow(color: Ink.green.opacity(0.12), radius: 6, y: 3)
                 .padding(.horizontal, 18).padding(.vertical, 8)
                 .accessibilityIdentifier(identifier ?? title)
+                .accessibilityLabel(title)
                 .disabled(!enabled)
                 .opacity(enabled ? 1 : 0.5)
         }

@@ -1,4 +1,6 @@
-v4 — personal feature testing source
+v4.1 — V3 feature import, local audit and original banknote design restoration
 Updated October 21, 2026
-Not yet compiled or run on an iPhone in this continuation.
-Personal backend retained; multiuser release deferred.
+Active project: Current/Tender.xcodeproj
+32 core tests and 30 backend tests passed; simulator build passed.
+See docs/verification.md for UI evidence and physical-device limits.
+Personal backend configuration retained; no production deployment in this session.

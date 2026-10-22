@@ -50,9 +50,19 @@ struct OverviewView: View {
     private var ledger: Ledger { store.ledger }
     var body: some View {
         PaperScreen {
-            SectionHeading(title: "Your accounts", subtitle: "Swipe to see each account.")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("YOUR EVERYDAY LEDGER").font(.system(.caption2, design: .monospaced).weight(.semibold)).tracking(2).foregroundStyle(Ink.muted)
+                Text("A little more intentional.").font(.system(.title2, design: .serif))
+            }
+            if ledger.isDemo { Label("Sample ledger · not connected to a bank", systemImage: "sparkle").font(.caption).foregroundStyle(Ink.muted) }
             if ledger.accounts.isEmpty {
-                EmptyNote(symbol: "wallet.bifold", title: "Your wallet starts here.", message: "Add an account or a cash wallet in Settings → Accounts.")
+                VStack(alignment: .leading, spacing: 20) {
+                    Label("YOUR ACCOUNTS", systemImage: "wallet.bifold").font(.system(.caption, design: .monospaced)).tracking(1.5)
+                    Text("Your wallet starts here.").font(.system(.title, design: .serif))
+                    Text("Add your account or cash wallet to begin.").font(.subheadline)
+                    Button { sheet = .account } label: { Label("Add your first account", systemImage: "plus.circle").frame(minHeight: 44) }
+                        .buttonStyle(.plain)
+                }.banknoteCard()
             } else {
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 0) {
@@ -63,6 +73,7 @@ struct OverviewView: View {
                         }
                     }.scrollTargetLayout()
                 }.scrollTargetBehavior(.paging).scrollIndicators(.hidden)
+                Text(ledger.accounts.count > 1 ? "Swipe between your \(ledger.accounts.count) accounts. Tap a card for details." : "Tap your account for purchases and balance details.").font(.caption).foregroundStyle(Ink.muted)
             }
             if store.bankUpdating { ProgressView("Checking bank information…") }
             if let message = store.bankMessage { Text(message).font(.caption).foregroundStyle(Ink.warning) }
@@ -111,8 +122,8 @@ struct WalletAccountCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack { Text(account.name).font(.headline); Spacer(); Image(systemName: account.isCash == true ? "banknote" : "building.columns") }
-            Text(snapshot?.availableCents != nil ? "BANK AVAILABLE · CACHED" : "RECORDED AVAILABLE").font(.system(.caption, design: .monospaced))
-            MoneyText(amount: snapshot?.availableCents ?? account.available).font(.system(.largeTitle, design: .serif)).minimumScaleFactor(0.7)
+            Text(snapshot?.availableCents != nil ? "BANK AVAILABLE · CACHED" : "RECORDED AVAILABLE").font(.system(.caption, design: .monospaced).weight(.medium)).tracking(1.5)
+            MoneyText(amount: snapshot?.availableCents ?? account.available).font(.system(.largeTitle, design: .serif).weight(.medium)).minimumScaleFactor(0.6).lineLimit(1)
             if let snapshot {
                 Text("Retrieved \(snapshot.retrievedAt.formatted(date: .abbreviated, time: .shortened))").font(.caption)
                 Text(Date().timeIntervalSince(snapshot.retrievedAt) > 900 ? "Stale retrieval · pull down to retry. Bank update time unknown." : "Bank update time unknown. Pending purchases may be missing.").font(.caption)
@@ -121,8 +132,23 @@ struct WalletAccountCard: View {
                 Text("Recorded \((account.snapshotAt ?? account.updated).formatted(date: .abbreviated, time: .shortened))").font(.caption)
                 Text(account.bankAccountKey == nil ? "Manual balance · update when needed" : "Saved snapshot · not a live bank balance").font(.caption)
             }
-        }.frame(maxWidth: .infinity, minHeight: 210, alignment: .leading).padding(22)
-            .foregroundStyle(.white).background { ZStack { Ink.green; Engraving(light: true).opacity(0.35) } }
+        }.frame(maxWidth: .infinity, minHeight: 210, alignment: .leading).banknoteCard()
+    }
+}
+
+// The original banknote surface stays dark green in both appearances. Ink.green
+// is a foreground color and becomes pale in Dark Mode, so it cannot be this fill.
+private extension View {
+    func banknoteCard() -> some View {
+        padding(24).frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(Color(red: 0.97, green: 0.96, blue: 0.90))
+            .background {
+                ZStack {
+                    Color(red: 0.08, green: 0.23, blue: 0.18)
+                    Engraving(light: true).mask(LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing))
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 22))
+            .overlay(RoundedRectangle(cornerRadius: 22).inset(by: 7).stroke(.white.opacity(0.22), lineWidth: 0.5))
     }
 }
