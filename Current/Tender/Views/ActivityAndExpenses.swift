@@ -150,7 +150,7 @@ struct ExpenseForm: View {
                 if UIImagePickerController.isSourceTypeAvailable(.camera) { Button { camera = true } label: { Label("Photograph Bill", systemImage: "camera") } }
                 Button { imported = true } label: { Label("Attach PDF or Image", systemImage: "doc.badge.plus") }
                 if reading { ProgressView("Reading bill on device…") }
-                if attachment != nil { Label("Bill attached (\(attachmentExt.uppercased()))", systemImage: "checkmark.circle"); Button("Remove Attachment", role: .destructive) { attachment = nil } }
+                if attachment != nil { Label("Bill attached (\(attachmentExt.uppercased()))", systemImage: "checkmark.circle"); Button("Remove Attachment", role: .destructive) { attachment = nil; receipt = ReceiptDetails(); hasReceipt = false } }
                 if let readError { Text(readError).foregroundStyle(Ink.warning) }
             } header: { Text("Paper trail") } footer: { Text("Photos prefill recognized details for review. Check the total, date and payment method before saving. The receipt image is retained; PDFs are retained as attachments. Recognition runs on device.") }
         }.paperForm().navigationTitle("Add Expense").navigationBarTitleDisplayMode(.inline)
@@ -164,7 +164,7 @@ struct ExpenseForm: View {
                     let url = try result.get(); let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
                     let data = try Data(contentsOf: url)
                     guard data.count <= 20_000_000 else { readError = "Choose a bill under 20 MB."; return }
-                    if url.pathExtension.lowercased() == "pdf" { attachment = data; attachmentExt = "pdf" }
+                    if url.pathExtension.lowercased() == "pdf" { attachment = data; attachmentExt = "pdf"; receipt = ReceiptDetails(); hasReceipt = false }
                     else { Task { await handlePhoto(data) } }
                 } catch { readError = "Couldn’t open this bill. Try choosing it again." }
             }
@@ -173,6 +173,7 @@ struct ExpenseForm: View {
     private func handlePhoto(_ data: Data) async {
         guard data.count <= 20_000_000, UIImage(data: data) != nil else { readError = "Choose a supported photo under 20 MB."; return }
         attachment = data
+        receipt = ReceiptDetails(); hasReceipt = false
         if let source = CGImageSourceCreateWithData(data as CFData, nil), let type = CGImageSourceGetType(source) { attachmentExt = UTType(type as String)?.preferredFilenameExtension ?? "jpg" }
         else { attachmentExt = "jpg" }; reading = true; readError = nil
         defer { reading = false }
@@ -182,7 +183,7 @@ struct ExpenseForm: View {
             if let value = receipt.merchant { merchant = value }
             if let value = receipt.total { amount = Money.input(value) }
             if let value = receipt.date, value <= Date() { date = value }
-            if receipt.payment?.lowercased().contains("cash") == true { cash = true }
+            if let payment = receipt.payment { cash = payment.lowercased().hasPrefix("cash") }
             if text.isEmpty { readError = "No text found. Enter the details manually; your image is attached." }
         }
         catch { readError = "Text couldn’t be read. Your photo is still attached." }
@@ -255,7 +256,9 @@ struct ReceiptSummary: View {
     @State private var editing: ReceiptLine?
     var body: some View {
         Section("Recognized receipt · review") {
-            if let payment = details.payment { LabeledContent("Payment", value: payment) }
+            if editable {
+                TenderField("Payment details (type and last four only)", text: Binding(get: { details.payment ?? "" }, set: { details.payment = $0 }))
+            } else if let payment = details.payment { LabeledContent("Payment", value: payment) }
             LabeledContent("Recognized item count", value: "\(details.itemCount)")
             ForEach(details.items) { item in
                 Button { if editable { editing = item } } label: {

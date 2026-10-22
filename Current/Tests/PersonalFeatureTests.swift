@@ -102,4 +102,29 @@ final class PersonalFeatureTests: XCTestCase {
         let restored = try JSONDecoder().decode(Ledger.self, from: data).validated()
         XCTAssertEqual(restored, original); XCTAssertNil(restored.bankActivity)
     }
+    func testShelfLabelWithTwoPricesOnOneLineNeedsReview() {
+        XCTAssertNil(ShelfLabelParser.parse("Ice cream\nRegular $4.99 now $3.99").price)
+        XCTAssertEqual(ShelfLabelParser.parse("Ice cream\n$3.99 $3.99").price, 399)
+    }
+    func testInformalShoppingPhraseAndDottedTime() {
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 21, hour: 12))!
+        let draft = ShoppingPlanParser.parse("i want to get ice cream tomorrow when im going costco at 5:30 p.m.", now: now, calendar: calendar)
+        XCTAssertEqual(draft.item, "ice cream"); XCTAssertEqual(draft.store, "costco")
+        XCTAssertEqual(calendar.component(.day, from: draft.date), 22)
+        XCTAssertEqual(calendar.component(.hour, from: draft.date), 17)
+        XCTAssertEqual(calendar.component(.minute, from: draft.date), 30)
+        XCTAssertFalse(ShoppingPlanParser.parse("apples tomorrow at 5:99 p.m.", now: now, calendar: calendar).hasExplicitTime)
+    }
+    func testRemovedBankPurchaseReopensLinkedGroceryPlan() throws {
+        var ledger = ledger(); let t = transaction()
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: [t])])
+        try ledger.recordBankPurchase(t, categoryID: ledger.categories[0].id)
+        ledger.groceries = [GroceryItem(name: "Apples", checked: true, plannedAt: Date(), purchasedAt: t.purchaseDate, expenseID: ledger.expenses[0].id)]
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: [])])
+        XCTAssertNil(ledger.groceries[0].expenseID)
+        XCTAssertNil(ledger.groceries[0].purchasedAt)
+        XCTAssertFalse(ledger.groceries[0].checked)
+        XCTAssertEqual(ledger.available, 10000)
+    }
 }

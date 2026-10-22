@@ -49,7 +49,9 @@ extension Ledger {
         for i in expenses.indices.reversed() where expenses[i].importedFromBank == true {
             guard let id = expenses[i].bankTransactionID, refreshedPrefixes.contains(where: { id.hasPrefix($0) }) else { continue }
             guard let t = byID[id], t.canRecord else {
-                expenses.remove(at: i); continue
+                // Keep a linked grocery plan consistent when a bank correction
+                // removes the purchase. Imported expenses never deducted cash.
+                removeExpense(id: expenses[i].id); continue
             }
             expenses[i].amount = t.amountCents
             expenses[i].date = t.purchaseDate!

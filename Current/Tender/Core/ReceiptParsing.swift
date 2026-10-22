@@ -69,7 +69,13 @@ public enum ShelfLabelParser {
         let name = lines.first { $0.rangeOfCharacter(from: .letters) != nil &&
             $0.range(of: #"\b(unit price|save|member|sale|price|per)\b"#, options: .regularExpression.union(.caseInsensitive)) == nil }
         let priceLines = lines.filter { $0.range(of: #"\b(per|unit price|save)\b|/\s*(oz|lb|kg|100)"#, options: .regularExpression.union(.caseInsensitive)) == nil }
-        let amounts = priceLines.compactMap { ReceiptParser.capture(#"\$?\b(\d{1,6}\.\d{2})\b"#, $0).flatMap(Money.cents) }
+        let pricePattern = try! NSRegularExpression(pattern: #"\$?\b(\d{1,6}\.\d{2})\b"#)
+        let amounts = priceLines.flatMap { line in
+            pricePattern.matches(in: line, range: NSRange(line.startIndex..., in: line)).compactMap { match -> Int64? in
+                guard let range = Range(match.range(at: 1), in: line) else { return nil }
+                return Money.cents(String(line[range]))
+            }
+        }
         // Ambiguous multiple prices and multi-buy deals need explicit selection.
         let deal = text.range(of: #"\d+\s*(for|/)\s*\$?\d"#, options: .regularExpression.union(.caseInsensitive)) != nil
         return ShelfLabel(name: name, price: Set(amounts).count == 1 && !deal ? amounts.first : nil,

@@ -166,6 +166,7 @@ struct TenderField: View {
 struct BottomAdd: ViewModifier {
     var title: String
     var identifier: String? = nil
+    var enabled = true
     var action: () -> Void
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
@@ -173,10 +174,12 @@ struct BottomAdd: ViewModifier {
                 .foregroundStyle(.white).background(Ink.green, in: Capsule()).shadow(radius: 3, y: 2)
                 .padding(.horizontal, 18).padding(.vertical, 8)
                 .accessibilityIdentifier(identifier ?? title)
+                .disabled(!enabled)
+                .opacity(enabled ? 1 : 0.5)
         }
     }
 }
 extension View {
     // Pass an identifier when a sheet's button has the same title as one on the screen behind it.
-    func bottomAdd(_ title: String, identifier: String? = nil, action: @escaping () -> Void) -> some View { modifier(BottomAdd(title: title, identifier: identifier, action: action)) }
+    func bottomAdd(_ title: String, identifier: String? = nil, enabled: Bool = true, action: @escaping () -> Void) -> some View { modifier(BottomAdd(title: title, identifier: identifier, enabled: enabled, action: action)) }
 }

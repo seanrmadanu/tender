@@ -136,4 +136,21 @@ final class TenderUITests: XCTestCase {
         field.typeText("Wide tap")
         XCTAssertEqual(field.value as? String, "Wide tap")
     }
+    func testFutureCartOpensItsDateAndPlanCanBeEdited() {
+        app.tabBars.buttons["Groceries"].tap(); tap(app.buttons["Add item"])
+        XCTAssertFalse(app.buttons["Add to Cart"].isEnabled)
+        enter("Ice cream tomorrow at Costco at 5 PM", "I want apples tomorrow at Costco")
+        tap(app.buttons["Fill Details for Review"])
+        tap(app.buttons["Add to Cart"])
+        XCTAssertTrue(app.staticTexts["apples"].waitForExistence(timeout: 5))
+        tap(app.buttons.containing(.staticText, identifier: "apples").firstMatch)
+        tap(app.buttons["Edit Shopping Plan"])
+        let shop = app.textFields["Store (optional)"]
+        tap(shop); shop.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 6) + "Target")
+        tap(app.navigationBars["Edit Shopping Plan"].buttons["Save"])
+        XCTAssertTrue(app.staticTexts["Store, Target"].waitForExistence(timeout: 5))
+        restart(); app.tabBars.buttons["Groceries"].tap(); tap(app.buttons["Next day"])
+        XCTAssertTrue(app.staticTexts["apples"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Target"].exists)
+    }
 }

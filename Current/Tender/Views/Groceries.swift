@@ -49,7 +49,7 @@ struct GroceryView: View {
                 changeDay(value.translation.width < 0 ? -1 : 1)
             })
             .sheet(item: $item) { grocery in NavigationStack { GroceryDetail(itemID: grocery.id) } }
-            .sheet(isPresented: $adding) { NavigationStack { GroceryForm(initialDate: selectedDate) } }
+            .sheet(isPresented: $adding) { NavigationStack { GroceryForm(initialDate: selectedDate, onSaved: { selectedDate = $0 }) } }
     }
     private func changeDay(_ delta: Int) { selectedDate = Calendar.current.date(byAdding: .day, value: delta, to: selectedDate)! }
 }
@@ -59,6 +59,7 @@ struct GroceryForm: View {
     var initialName = ""
     var initialPrice = ""
     var initialDate = Date()
+    var onSaved: (Date) -> Void = { _ in }
     @State private var name = ""
     @State private var quantity = 1
     @State private var unit = "each"
@@ -119,7 +120,7 @@ struct GroceryForm: View {
                 Text("Record Purchase opens an expense for your review. Add to Cart only saves a plan. Review scanned and spoken details before either action.").font(.footnote)
             }
         }.paperForm().navigationTitle("Shopping Item")
-            .bottomAdd("Add to Cart") { Task { await save(purchase: false) } }
+            .bottomAdd("Add to Cart", enabled: valid) { Task { await save(purchase: false) } }
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .onAppear { guard !initialized else { return }; initialized = true; name = initialName; price = initialPrice; plannedAt = initialDate }
             .onDisappear { speech.stop() }
@@ -156,6 +157,7 @@ struct GroceryForm: View {
         let observations = Money.cents(price).map { [PriceObservation(price: $0, store: shop, photo: file)] } ?? []
         let item = GroceryItem(name: name.trimmingCharacters(in: .whitespacesAndNewlines), quantity: quantity, unit: unit, observations: observations, plannedAt: plannedAt, storeName: shop, remind: !purchase && remind)
         if store.update({ $0.groceries.append(item) }) {
+            onSaved(item.plannedAt ?? plannedAt)
             await store.refreshReminders()
             if purchase { recordedItem = item } else { dismiss() }
         } else if let file { try? FileManager.default.removeItem(at: store.attachmentURL(file)) }
@@ -177,6 +179,7 @@ struct GroceryDetail: View {
     @State private var savedPrice = false
     @State private var purchase = false
     @State private var discard = false
+    @State private var editingPlan = false
     @FocusState private var inputFocused: Bool
     private var hasDraft: Bool { !price.isEmpty || !shop.isEmpty || imageData != nil }
     private var item: GroceryItem? { store.ledger.groceries.first { $0.id == itemID } }
@@ -186,6 +189,7 @@ struct GroceryDetail: View {
                 Section("Shopping plan") {
                     if let date = item.purchasedAt { Text("Purchased \(date.formatted(date: .abbreviated, time: .shortened))") }
                     else {
+                        Button("Edit Shopping Plan") { editingPlan = true }
                         DatePicker("Planned for", selection: Binding(get: { self.item?.plannedAt ?? Date() }, set: { value in
                             _ = store.update { ledger in if let i = ledger.groceries.firstIndex(where: { $0.id == itemID }) { ledger.groceries[i].plannedAt = value } }
                             Task { await store.refreshReminders() }
@@ -231,6 +235,7 @@ struct GroceryDetail: View {
             .onChange(of: photo) { _, item in Task { do { if let data = try await item?.loadTransferable(type: Data.self) { await scan(data) } } catch { ocr = "Couldn’t load this image." } } }
             .sheet(isPresented: $camera) { CameraPicker { data in Task { await scan(data) } } }
             .quickLookPreview($preview)
+            .sheet(isPresented: $editingPlan) { if let item { NavigationStack { GroceryPlanEditor(item: item) } } }
             .sheet(isPresented: $purchase) { if let item { NavigationStack { ExpenseForm(initialAmount: Money.input((item.estimatedUnitPrice ?? 0) * Int64(item.quantity)), initialCategory: store.ledger.categories.first(where: { $0.name == "Groceries" })?.id, initialMerchant: item.storeName?.isEmpty == false ? item.storeName! : item.name, groceryID: item.id) } } }
             .confirmationDialog("Delete this item and its price history?", isPresented: $deleting, titleVisibility: .visible) { Button("Delete", role: .destructive) { if store.update({ $0.groceries.removeAll { $0.id == itemID } }) { Task { await store.refreshReminders() }; dismiss() } } }
     }

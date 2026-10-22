@@ -204,6 +204,9 @@ final class LedgerStore {
             next.bankActivity = nil
             for i in next.groceries.indices where next.groceries[i].expenseID.map(removedIDs.contains) == true {
                 next.groceries[i].expenseID = nil
+                next.groceries[i].purchasedAt = nil
+                next.groceries[i].checked = false
+                next.groceries[i].remind = false
             }
         }
         try JSONEncoder.tender.encode(try next.validated()).write(to: root.appending(path: "ledger.json"), options: [.atomic, .completeFileProtection])
