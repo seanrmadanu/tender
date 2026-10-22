@@ -1,5 +1,5 @@
-v4.1.6 — Simple scanned product names
+v4.1.7 — Shopping name wrapping and keyboard dismissal
 Updated October 22, 2026
 Active project: Current/Tender.xcodeproj
-5/5 focused parser checks passed; real scans left to user.
+Simulator-target compilation passed; device UI testing left to user.
 Earlier versions and verification preserved.

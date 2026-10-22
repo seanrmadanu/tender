@@ -73,7 +73,8 @@ struct ShoppingView: View {
     @State private var savedCartID: UUID?
     @Environment(\.dynamicTypeSize) private var textSize
     @State private var itemName = ""
-    @FocusState private var inputFocused: Bool
+    private enum InputField: Hashable { case name, price }
+    @FocusState private var focusedInput: InputField?
     private var category: BudgetCategory? { store.ledger.categories.first { $0.id == categoryID } }
     private var cartPurchased: Bool { store.ledger.groceries.first { $0.id == savedCartID }?.purchasedAt != nil }
     private var unitPrice: Int64? { Money.cents(amount) }
@@ -88,8 +89,16 @@ struct ShoppingView: View {
         PaperScreen {
             SectionHeading(title: "A moment before checkout.", subtitle: "Check the numbers. Then make the call.")
             PaperCard {
-                TenderField("Item or purchase name", text: $itemName).focused($inputFocused)
-                Text("PRICE PER ITEM").font(.system(.caption, design: .monospaced)).tracking(1.5).foregroundStyle(Ink.muted)
+                TextField("Item or purchase name", text: $itemName, axis: .vertical)
+                    .lineLimit(3, reservesSpace: true)
+                    .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(TapGesture().onEnded { focusedInput = .name })
+                    .focused($focusedInput, equals: .name)
+                    .submitLabel(.done)
+                    .onSubmit { focusedInput = nil }
+                    .accessibilityLabel("Item or purchase name")
+                    .accessibilityIdentifier("shopping-item-name")
                 if textSize.isAccessibilitySize {
                     priceInput
                     quantityControl
@@ -120,13 +129,23 @@ struct ShoppingView: View {
             .navigationTitle("Shopping Mode").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button { focusedInput = nil } label: {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .accessibilityLabel("Hide keyboard")
+                    .accessibilityIdentifier("shopping-hide-keyboard")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        focusedInput = nil
                         if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true }
                         else { choosingPhoto = true }
                     } label: { Image(systemName: "text.viewfinder").frame(minWidth: 44, minHeight: 44) }
                     .accessibilityLabel("Scan price label").accessibilityIdentifier("shopping-scan-label").disabled(scanning)
-                    .contextMenu { Button("Choose label photo", systemImage: "photo") { choosingPhoto = true } }
+                    .contextMenu { Button("Choose label photo", systemImage: "photo") { focusedInput = nil; choosingPhoto = true } }
                 }
             }
             .onChange(of: itemName) { _, _ in savedCartID = nil }
@@ -143,7 +162,11 @@ struct ShoppingView: View {
     private var priceInput: some View {
         HStack(spacing: 4) {
             Text("$").font(.title)
-            TenderField("0.00", text: $amount).keyboardType(.decimalPad).focused($inputFocused)
+            TextField("0.00", text: $amount).keyboardType(.decimalPad)
+                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded { focusedInput = .price })
+                .focused($focusedInput, equals: .price)
                 .font(.system(.title, design: .serif)).accessibilityLabel("Price per item in US dollars")
                 .accessibilityIdentifier("shopping-unit-price")
         }.frame(maxWidth: .infinity)
@@ -172,7 +195,7 @@ struct ShoppingView: View {
                                    observations: observations, plannedAt: Date(), remind: false)
             if store.update({ $0.groceries.append(item) }) {
                 savedCartID = item.id
-                inputFocused = false
+                focusedInput = nil
                 message = nil
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } else {
@@ -182,11 +205,12 @@ struct ShoppingView: View {
         } catch { message = "Couldn’t save the label photo. Please try again." }
     }
     private func scan(_ data: Data) async {
+        focusedInput = nil
         guard let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85), jpeg.count <= 20_000_000 else {
             message = "Choose a photo under 20 MB."; return
         }
         scanning = true
-        inputFocused = false
+        focusedInput = nil
         savedCartID = nil
         defer { scanning = false }
         // Never carry a previous item's price into an ambiguous new scan.

@@ -1,3 +1,24 @@
+## v4.1.7 — Shopping name wrapping and keyboard dismissal, October 22, 2026
+
+Shopping Mode uses a vertical name field with three reserved lines (72-point
+minimum). Long names wrap and then scroll within that area instead of growing
+the card with their length. Removed PRICE PER ITEM caption to reuse its space;
+price retains its accessibility label. The three-line region scales with system
+text size for accessibility. Existing banknote styling and quantity wheel retained.
+
+Added a keyboard-down button above both text and decimal keyboards, and a Done
+submit action on the name field. Both fields now bind directly to an explicit
+name/price focus state rather than nested TenderField focus states. Full field
+hit regions retained. Opening the scanner/photo picker and saving the cart clear
+focus; interactive scroll dismissal remains available through PaperScreen.
+
+Validation: simulator-target compilation passed (build only), evidence in
+Current/build/oct22-shopping-text-build.log. No UI tests or device installation;
+user will check wrapping, layout and keyboard behavior on iPhone. Previous
+checkpoint: 1bc1f24. Price OCR and product recognition unchanged in this revision.
+
+---
+
 ## v4.1.6 — Simple scanned product names, October 22, 2026
 
 Added a small local vocabulary of common product words. A single recognized
