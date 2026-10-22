@@ -56,6 +56,15 @@ final class TenderUITests: XCTestCase {
         app.terminate(); app.launchArguments = ["--ui-testing", "--preserve-test-ledger"]; app.launch()
         XCTAssertTrue(app.buttons["Record Purchase"].waitForExistence(timeout: 10))
     }
+    func testSlowStorageShowsLoadingScreenBeforeLedgerIsReady() {
+        app.terminate()
+        app.launchArguments = ["--ui-testing", "--slow-ledger-load"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Opening your ledger…"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.buttons["Record Purchase"].exists, "Editing must wait for the saved ledger.")
+        XCTAssertTrue(app.buttons["Record Purchase"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Opening your ledger…"].exists)
+    }
     func testAccountsPersistSeparately() {
         accounts(); addAccount("Checking", "100.00"); addAccount("Savings", "200.00")
         restart(); accounts()

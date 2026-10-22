@@ -1,3 +1,12 @@
+## Latest fix — October 22, 2026
+
+Startup disk work now runs off the main actor; unchanged ledgers are no longer
+rewritten on launch. Core tests 36/36 and startup/persistence UI tests 3/3 pass.
+The reported 30-second iPhone stall still needs on-device confirmation after
+installing this build. See [verification](Current/docs/verification.md).
+
+---
+
 ## Latest local status — October 21, 2026
 
 Work in **Current/Tender.xcodeproj**. V3 was imported with a recoverable pre-import

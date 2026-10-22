@@ -5,7 +5,23 @@ import AppIntents
 struct TenderApp: App {
     @State private var store = LedgerStore()
     var body: some Scene {
-        WindowGroup { RootView().environment(store).tint(Ink.green).task { await store.refreshReminders() } }
+        WindowGroup {
+            Group {
+                if store.hasLoaded {
+                    RootView()
+                } else {
+                    ZStack {
+                        Ink.paper.ignoresSafeArea()
+                        VStack(spacing: 16) {
+                            Text("tender").font(.system(.largeTitle, design: .serif))
+                            ProgressView("Opening your ledger…")
+                        }.foregroundStyle(Ink.green)
+                    }.accessibilityIdentifier("ledger-loading")
+                }
+            }
+            .environment(store).tint(Ink.green)
+            .task { await store.loadIfNeeded() }
+        }
     }
 }
 struct ShoppingIntent: AppIntent {

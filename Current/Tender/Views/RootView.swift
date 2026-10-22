@@ -33,6 +33,7 @@ struct RootView: View {
         .onChange(of: phase) { _, phase in if phase == .active { openShoppingIfNeeded(); Task { await store.refreshReminders(); await store.refreshBank() } } }
         .onAppear { openShoppingIfNeeded() }
         .task {
+            await store.refreshReminders()
             await store.refreshBank()
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(300)) } catch { break }

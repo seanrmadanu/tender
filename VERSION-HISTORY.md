@@ -1,3 +1,13 @@
+# Active: v4.1.1 — Startup follow-up
+
+October 22, 2026. Local ledger loading/migration moved off the main actor,
+unchanged startup rewrites removed, startup Keychain read moved off main, and
+a loading state prevents premature edits. Core 36/36 and selected UI 3/3 passed.
+Pre-fix checkpoint: `4b08b5e`. Physical iPhone launch timing remains unverified.
+See the latest Git commit and Current/docs/verification.md.
+
+---
+
 # Active: v4.1 — V3 import, feature audit, original design restoration
 
 October 21, 2026. The supplied folder is named V3; its ZIP describes its source

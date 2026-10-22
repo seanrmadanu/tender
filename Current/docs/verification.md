@@ -1,3 +1,38 @@
+## Startup follow-up — October 22, 2026
+
+User reported a blank launch screen for more than 30 seconds when opening the
+iPhone icon. Confirmed source issue: LedgerStore initialized synchronously on
+the main actor, reading/decoding/validating and rewriting the whole ledger on
+every launch. The update had added the unconditional rewrite. The exact
+30-second device stall has not been reproduced or profiled on the phone.
+
+Changed startup to initialize cheaply and load/validate/migrate on a detached
+worker task. Normal launches no longer rewrite an unchanged file. The opening
+screen appears while storage loads; editing and bank/reminder work begin only
+after the saved ledger is ready. Load failure preserves the original and keeps
+editing blocked. Startup bank Keychain access also runs off the main actor.
+Local load duration is logged under com.sean.tender / Startup without financial
+data or credentials. The original paper/green design and connected-bank setup
+are retained.
+
+Verification: 36/36 core tests and 3/3 selected simulator UI tests passed. New
+regressions cover unchanged file bytes/mtime, one-time migration retaining
+records, corrupt-file preservation, and 10,000 synthetic bank records. That
+fixture loaded in 0.038 seconds on this Mac; this is not an iPhone launch timing.
+The UI test deliberately delays storage for five seconds and verifies that the
+opening screen is visible first, editing is unavailable, and Home then opens.
+Account persistence and legacy preservation UI tests also passed.
+
+Evidence: Current/build/oct22-startup-core-tests.log,
+Current/build/oct22-startup-ui-tests.log and
+/private/tmp/Tender-oct22-startup.xcresult. No physical iPhone install, personal
+ledger reset, backend deployment or live bank request was performed. Install the
+updated Current build over the existing app, then retest from the iPhone icon;
+do not uninstall or clear data. If the blank delay persists, collect device
+startup timing before attributing it to network or storage.
+
+---
+
 # Verified locally — October 21, 2026
 
 Active source is `Current/`. No physical iPhone install, live bank requests,

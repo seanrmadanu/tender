@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-struct BankConfiguration: Codable {
+struct BankConfiguration: Codable, Sendable {
     private static var keychainService: String {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--ui-testing") { return "com.sean.tender.bank.ui-tests" }

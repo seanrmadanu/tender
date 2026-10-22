@@ -2,12 +2,16 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UserNotifications
 import Vision
+import OSLog
 
 @MainActor @Observable
 final class LedgerStore {
     var ledger: Ledger
     var error: String?
-    var storageHealthy = true
+    private(set) var hasLoaded = false
+    var storageHealthy = false
+    private var loadingTask: Task<Ledger, Error>?
+    private let startupLog = Logger(subsystem: "com.sean.tender", category: "Startup")
     var bankUpdating = false
     var bankMaintenance = false
     var bankMessage: String?
@@ -27,29 +31,44 @@ final class LedgerStore {
         #else
         root = URL.documentsDirectory.appending(path: "Tender", directoryHint: .isDirectory)
         #endif
-        do {
-            try FileManager.default.createDirectory(at: root.appending(path: "Attachments"), withIntermediateDirectories: true)
-            let file = root.appending(path: "ledger.json")
+        ledger = .empty()
+    }
+    // Initialization stays cheap: no filesystem, validation, or migration work
+    // can hold the system launch screen on the main actor.
+    func loadIfNeeded() async {
+        guard !hasLoaded else { return }
+        if loadingTask == nil {
+            let root = root
+            var initial: Ledger?
             #if DEBUG
-            if testing && !ProcessInfo.processInfo.arguments.contains("--preserve-test-ledger") {
-                var initial = ProcessInfo.processInfo.arguments.contains("--sample-ledger") ? Ledger.sample() : Ledger.empty()
-                if ProcessInfo.processInfo.arguments.contains("--legacy-reset-test") { initial = Ledger.sample(); initial.freshStartVersion = nil }
-                try JSONEncoder.tender.encode(initial).write(to: file, options: .atomic)
+            let arguments = ProcessInfo.processInfo.arguments
+            let testing = arguments.contains("--ui-testing")
+            if testing && !arguments.contains("--preserve-test-ledger") {
+                initial = arguments.contains("--sample-ledger") ? Ledger.sample() : Ledger.empty()
+                if arguments.contains("--legacy-reset-test") { initial = Ledger.sample(); initial?.freshStartVersion = nil }
             }
+            let slowTestLoad = testing && arguments.contains("--slow-ledger-load")
+            #else
+            let slowTestLoad = false
             #endif
-            if FileManager.default.fileExists(atPath: file.path) {
-                ledger = try JSONDecoder.tender.decode(Ledger.self, from: Data(contentsOf: file)).validated()
-                // Preserve every existing ledger. The earlier one-time reset is retired.
-                if ledger.freshStartVersion == nil { ledger.freshStartVersion = 1 }
-                for i in ledger.groceries.indices where ledger.groceries[i].plannedAt == nil {
-                    ledger.groceries[i].plannedAt = Calendar.current.startOfDay(for: Date())
-                }
-                try JSONEncoder.tender.encode(ledger).write(to: file, options: [.atomic, .completeFileProtection])
-            } else { ledger = .empty() }
+            let seed = initial
+            loadingTask = Task.detached(priority: .userInitiated) {
+                // Exercise first-frame responsiveness without touching a real ledger.
+                if slowTestLoad { try await Task.sleep(for: .seconds(5)) }
+                return try LedgerPersistence.load(root: root, initial: seed)
+            }
+        }
+        let started = ContinuousClock.now
+        do {
+            ledger = try await loadingTask!.value
+            storageHealthy = true
         } catch {
-            ledger = .empty(); storageHealthy = false
+            storageHealthy = false
             self.error = "Your saved ledger could not be opened. The original file has been preserved. Restore a valid backup in Settings before making changes."
         }
+        hasLoaded = true
+        loadingTask = nil
+        startupLog.info("Local ledger load finished in \(String(describing: started.duration(to: .now)), privacy: .public); healthy=\(self.storageHealthy, privacy: .public)")
     }
     @discardableResult func update(_ change: (inout Ledger) throws -> Void) -> Bool {
         guard storageHealthy else { error = "Restore a valid backup before editing this ledger."; return false }
@@ -165,10 +184,11 @@ final class LedgerStore {
         if ProcessInfo.processInfo.arguments.contains("--ui-testing") { return }
         #endif
         guard !bankUpdating, !bankMaintenance, !bankAccessPaused, !ledger.isDemo, storageHealthy,
-              force || automaticBankUpdates, let config = BankConfiguration.load(),
+              force || automaticBankUpdates,
               force || Date().timeIntervalSince(lastBankAttempt ?? .distantPast) >= 300 else { return }
         bankUpdating = true; lastBankAttempt = Date(); bankMessage = nil
         defer { bankUpdating = false }
+        guard let config = await Task.detached(priority: .utility, operation: { BankConfiguration.load() }).value else { return }
         let client = BankClient(configuration: config)
         var messages: [String] = []
         do {
@@ -255,12 +275,6 @@ final class LedgerStore {
         }
         return (["date,merchant,amount_usd,category,note"] + rows).joined(separator: "\n")
     }
-}
-extension JSONEncoder {
-    static var tender: JSONEncoder { let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; e.outputFormatting = [.prettyPrinted, .sortedKeys]; return e }
-}
-extension JSONDecoder {
-    static var tender: JSONDecoder { let d = JSONDecoder(); d.dateDecodingStrategy = .iso8601; return d }
 }
 struct ExportDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.json, .commaSeparatedText, .plainText] }
