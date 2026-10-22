@@ -1,3 +1,21 @@
+## v4.1.6 — Simple scanned product names, October 22, 2026
+
+Added a small local vocabulary of common product words. A single recognized
+product kind anywhere in eligible OCR lines takes priority over incidental
+text: TUBES followed by GREEK YOGURT becomes Yogurt. Cabernet becomes Wine,
+and kitchen faucet becomes Faucet. Whole-word matching avoids Tea in TEAPOT;
+multiple recognized kinds retain the existing descriptive fallback (e.g.
+CHICKEN PASTA). Unknown products also retain that fallback. Names stay editable.
+No internet lookup was added. This cannot recover product text OCR failed to
+recognize and is not a general product catalog or guaranteed label detector.
+
+Five focused shelf-parser code tests passed, including synthetic TUBES/YOGURT,
+spelling variation, split ICE/CREAM, compound products and unchanged price guards.
+Evidence: Current/build/oct22-simple-product-names.log. No UI/device tests or
+phone install; user will test actual scans. Prior checkpoint: b0b32d0.
+
+---
+
 ## Shelf-label product names — October 22, 2026
 
 v4.1.5 replaces first-alphabetic-line selection with product-name filtering.

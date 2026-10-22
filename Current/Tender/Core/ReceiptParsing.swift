@@ -96,6 +96,11 @@ public enum ShelfLabelParser {
             return line.range(of: sizeOnly, options: [.regularExpression, .caseInsensitive]) == nil &&
                 line.range(of: #"\$\s*\d|\d+\.\d{2}"#, options: .regularExpression) == nil
         }
+        // Prefer a simple product word anywhere in the usable label text over
+        // incidental text such as TUBES. Multiple product kinds stay descriptive.
+        if let commonName = commonProductName(in: lines.filter(isCandidate)) {
+            return commonName
+        }
         guard let first = lines.firstIndex(where: isCandidate) else { return nil }
         var parts = [lines[first]]
         // Shelf titles are often split over successive capitalized OCR lines.
@@ -108,5 +113,39 @@ public enum ShelfLabelParser {
         }
         return parts.joined(separator: " ")
     }
-
+    private static func commonProductName(in lines: [String]) -> String? {
+        // Deliberately small vocabulary, matched as whole words. No fuzzy guesses
+        // or inferred products from prices/brands; unknown labels use their text.
+        let vocabulary: [(name: String, pattern: String)] = [
+            ("Yogurt", #"yogh?urts?"#),
+            ("Ice cream", #"ice\s+cream"#),
+            ("Cereal", #"cereals?"#),
+            ("Eggs", #"eggs?"#),
+            ("Bread", #"bread"#),
+            ("Rice", #"rice"#),
+            ("Pasta", #"pasta"#),
+            ("Cheese", #"cheese"#),
+            ("Coffee", #"coffee"#),
+            ("Tea", #"tea"#),
+            ("Bananas", #"bananas?"#),
+            ("Apples", #"apples?"#),
+            ("Strawberries", #"strawberr(?:y|ies)"#),
+            ("Blueberries", #"blueberr(?:y|ies)"#),
+            ("Potatoes", #"potato(?:es)?"#),
+            ("Tomatoes", #"tomato(?:es)?"#),
+            ("Chicken", #"chicken"#),
+            ("Salmon", #"salmon"#),
+            ("Wine", #"wine|cabernet(?:\s+sauvignon)?|merlot|chardonnay|pinot(?:\s+(?:noir|grigio))?"#),
+            ("Faucet", #"faucets?"#),
+            ("Laundry detergent", #"laundry\s+detergent"#),
+            ("Paper towels", #"paper\s+towels?"#),
+            ("Toilet paper", #"toilet\s+(?:paper|tissue)"#)
+        ]
+        let text = lines.joined(separator: " ")
+        let matches = vocabulary.filter {
+            text.range(of: "\\b(?:" + $0.pattern + ")\\b",
+                       options: [.regularExpression, .caseInsensitive]) != nil
+        }
+        return matches.count == 1 ? matches.first?.name : nil
+    }
 }

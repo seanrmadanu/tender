@@ -1,5 +1,5 @@
-v4.1.5 — Shelf-label product names
+v4.1.6 — Simple scanned product names
 Updated October 22, 2026
 Active project: Current/Tender.xcodeproj
-38/38 core tests passed; real scan testing left to user.
+5/5 focused parser checks passed; real scans left to user.
 Earlier versions and verification preserved.
