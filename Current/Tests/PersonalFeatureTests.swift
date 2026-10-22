@@ -102,6 +102,16 @@ final class PersonalFeatureTests: XCTestCase {
         let restored = try JSONDecoder().decode(Ledger.self, from: data).validated()
         XCTAssertEqual(restored, original); XCTAssertNil(restored.bankActivity)
     }
+    func testShelfLabelIgnoresNutritionServingFraction() {
+        let label = ShelfLabelParser.parse("I 1/3 CUP SERVING\n210 CALORIES\n0g SATURATED FAT\n260mg SODIUM\n8g TOTAL SUGARS\nCHEERIOS\n$4.06")
+        XCTAssertEqual(label.name, "CHEERIOS")
+        XCTAssertEqual(label.price, 406)
+        let missingName = ShelfLabelParser.parse("1/3 CUP SERVING\n210 CALORIES\n$4.06")
+        XCTAssertNil(missingName.name)
+        XCTAssertEqual(missingName.price, 406)
+        XCTAssertNil(ShelfLabelParser.parse("1/3 CUP SERVING\nCereal\n2 for $5.00").price)
+        XCTAssertNil(ShelfLabelParser.parse("Cereal\n2/$5.00").price)
+    }
     func testShelfLabelWithTwoPricesOnOneLineNeedsReview() {
         XCTAssertNil(ShelfLabelParser.parse("Ice cream\nRegular $4.99 now $3.99").price)
         XCTAssertEqual(ShelfLabelParser.parse("Ice cream\n$3.99 $3.99").price, 399)

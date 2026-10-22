@@ -1,3 +1,17 @@
+## Shelf-label nutrition filtering — October 22, 2026
+
+User screenshot showed serving-size text used as the item name and no price.
+Found a deterministic parser bug: a nutrition fraction such as 1/3 was treated
+as a multi-buy offer by the global deal detector. Shelf parsing now excludes
+nutrition/serving lines before choosing the name, price and multi-buy status.
+37/37 core tests passed, including a synthetic OCR-text regression containing
+serving size, nutrition facts and $4.06; genuine multi-buy ambiguity is retained.
+Evidence: build/oct22-scanner-nutrition-tests.log. No new UI/build run.
+The public source-image download returned HTTP 403; full-image OCR reproduction
+and device rescan remain unverified. This fix cannot recover text Vision missed.
+
+---
+
 ## Quantity wheel — October 22, 2026
 
 Replaced Shopping Mode's quantity buttons with an inline native wheel, 1–99.

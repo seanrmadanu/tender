@@ -1,5 +1,5 @@
-v4.1.3 — Native scrolling quantity wheel in Shopping Mode
+v4.1.4 — Shelf-label nutrition text filtering
 Updated October 22, 2026
 Active project: Current/Tender.xcodeproj
-2/2 quantity/cart/purchase UI tests passed; simulator screenshot reviewed.
-Previous versions and verification retained. No phone installation or deployment.
+37/37 core tests passed. Full-image OCR/device rescan pending.
+Earlier versions and verification preserved.

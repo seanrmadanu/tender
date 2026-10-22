@@ -1,3 +1,11 @@
+# Active: v4.1.4 — Shelf label parsing fix
+
+Nutrition fractions no longer trigger multi-buy ambiguity or become item names.
+37/37 core tests passed; full-image/device scan pending. Previous checkpoint:
+`9fdd514`. See Current/docs/verification.md and the latest Git commit.
+
+---
+
 # Active: v4.1.3 — Quantity wheel
 
 October 22, 2026. Replaced Shopping Mode quantity buttons with an inline native

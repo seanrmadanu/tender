@@ -66,9 +66,14 @@ public struct ShelfLabel: Sendable {
 public enum ShelfLabelParser {
     public static func parse(_ text: String) -> ShelfLabel {
         let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        let name = lines.first { $0.rangeOfCharacter(from: .letters) != nil &&
+        // Serving fractions on nearby packaging are not multi-buy offers.
+        let labelLines = lines.filter { line in
+            line.range(of: #"\b(servings?|calories|nutrition|sodium|sugars?|protein|cholesterol|carbohydrates?|saturated|trans\s+fat|daily\s+value)\b|\d\s*(?:/\s*\d)?\s*cups?\b"#,
+                       options: .regularExpression.union(.caseInsensitive)) == nil
+        }
+        let name = labelLines.first { $0.rangeOfCharacter(from: .letters) != nil &&
             $0.range(of: #"\b(unit price|save|member|sale|price|per)\b"#, options: .regularExpression.union(.caseInsensitive)) == nil }
-        let priceLines = lines.filter { $0.range(of: #"\b(per|unit price|save)\b|/\s*(oz|lb|kg|100)"#, options: .regularExpression.union(.caseInsensitive)) == nil }
+        let priceLines = labelLines.filter { $0.range(of: #"\b(per|unit price|save)\b|/\s*(oz|lb|kg|100)"#, options: .regularExpression.union(.caseInsensitive)) == nil }
         let pricePattern = try! NSRegularExpression(pattern: #"\$?\b(\d{1,6}\.\d{2})\b"#)
         let amounts = priceLines.flatMap { line in
             pricePattern.matches(in: line, range: NSRange(line.startIndex..., in: line)).compactMap { match -> Int64? in
@@ -77,7 +82,7 @@ public enum ShelfLabelParser {
             }
         }
         // Ambiguous multiple prices and multi-buy deals need explicit selection.
-        let deal = text.range(of: #"\d+\s*(for|/)\s*\$?\d"#, options: .regularExpression.union(.caseInsensitive)) != nil
+        let deal = labelLines.joined(separator: "\n").range(of: #"\d+\s*(for|/)\s*\$?\d"#, options: .regularExpression.union(.caseInsensitive)) != nil
         return ShelfLabel(name: name, price: Set(amounts).count == 1 && !deal ? amounts.first : nil,
             unit: ReceiptParser.capture(#"\b(\d+(?:\.\d+)?\s*(?:fl\s*oz|oz|lb|kg|ml|liters?|ct))\b"#, text))
     }
