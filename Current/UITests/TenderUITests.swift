@@ -113,6 +113,77 @@ final class TenderUITests: XCTestCase {
         reveal(app.staticTexts["Store not specified, $1.49"])
         reveal(app.staticTexts["Store not specified, $3.49"])
     }
+    func testShoppingModeAddsDirectlyWithoutCategoryOrAccount() {
+        app.terminate()
+        app.launchArguments = ["--ui-testing"]
+        app.launch()
+        tap(app.buttons["open-shopping"])
+        XCTAssertTrue(app.buttons["shopping-scan-label"].exists)
+        XCTAssertFalse(app.buttons["shopping-add-cart"].isEnabled)
+        XCTAssertFalse(app.buttons["Decrease quantity"].isEnabled)
+        enter("Item or purchase name", "Donut")
+        enter("shopping-unit-price", "2.50")
+        tap(app.buttons["Increase quantity"])
+        XCTAssertEqual(app.staticTexts["shopping-quantity"].value as? String, "2")
+        tap(app.buttons["shopping-add-cart"])
+        XCTAssertTrue(app.staticTexts["shopping-cart-confirmation"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Shopping Mode"].exists)
+        XCTAssertFalse(app.navigationBars["Shopping Item"].exists)
+        XCTAssertFalse(app.buttons["shopping-add-cart"].isEnabled)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        reveal(app.textFields["Item or purchase name"])
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Shopping Mode direct cart"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        tap(app.buttons["Done"])
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertFalse(app.buttons.containing(.staticText, identifier: "Donut").firstMatch.exists)
+        restart()
+        app.tabBars.buttons["Groceries"].tap()
+        let donut = app.buttons.containing(.staticText, identifier: "Donut").firstMatch
+        XCTAssertTrue(donut.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons.containing(.staticText, identifier: "Donut").count, 1)
+        XCTAssertTrue(donut.staticTexts["2 × each · Planned"].exists)
+        XCTAssertTrue(donut.staticTexts["$5.00"].exists)
+    }
+    func testShoppingModeNameOnlyCart() {
+        tap(app.buttons["open-shopping"])
+        enter("Item or purchase name", "Ice cream")
+        tap(app.buttons["shopping-add-cart"])
+        XCTAssertTrue(app.staticTexts["shopping-cart-confirmation"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Shopping Mode name-only cart"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        tap(app.buttons["Done"])
+        app.tabBars.buttons["Groceries"].tap()
+        XCTAssertTrue(app.staticTexts["Ice cream"].waitForExistence(timeout: 5))
+    }
+    func testShoppingModeQuantityFlowsIntoPurchaseAndLinksCart() {
+        accounts(); addAccount("Checking", "100.00")
+        app.tabBars.buttons["Home"].tap(); tap(app.buttons["open-shopping"])
+        enter("Item or purchase name", "Donut")
+        enter("shopping-unit-price", "2.50")
+        tap(app.buttons["Increase quantity"])
+        tap(app.buttons["Category, Choose an envelope"])
+        tap(app.collectionViews.buttons["Food & coffee"])
+        XCTAssertTrue(app.staticTexts["Cash after purchase & bills, $95.00"].exists)
+        tap(app.buttons["shopping-add-cart"])
+        tap(app.buttons["shopping-record-purchase"])
+        XCTAssertEqual(app.textFields["Amount (USD)"].value as? String, "5.00")
+        tap(app.navigationBars.buttons["Save"])
+        XCTAssertTrue(app.navigationBars["Add Expense"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Saved in today’s purchases."].exists)
+        XCTAssertFalse(app.buttons["shopping-record-purchase"].isEnabled)
+        tap(app.buttons["Done"])
+        app.tabBars.buttons["Groceries"].tap()
+        let donut = app.buttons.containing(.staticText, identifier: "Donut").firstMatch
+        XCTAssertTrue(donut.staticTexts["2 × each · Purchased"].exists)
+        accounts(); tap(app.buttons["account-Checking"])
+        XCTAssertTrue(app.staticTexts["Available balance, $95.00"].exists)
+    }
     func testTypedShoppingPlanPrefillsAndStaysReviewable() {
         app.tabBars.buttons["Groceries"].tap(); tap(app.buttons["Add item"])
         enter("Ice cream tomorrow at Costco at 5 PM", "I want ice cream tomorrow when I go to Costco at 5 PM")

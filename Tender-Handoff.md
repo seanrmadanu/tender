@@ -1,3 +1,14 @@
+## Latest change — October 22, 2026: quick cart
+
+Shopping Mode Add to Cart now saves directly, without a second form. Quantity
+uses minus/count/plus beside unit price; scan icon is top right. Category, price,
+store and planning metadata are optional for a named cart item. Purchase totals
+include quantity and can link the saved cart item. Three distinct UI regressions
+passed; camera/OCR hardware validation remains pending. See
+[verification](Current/docs/verification.md). Version v4.1.2; prior versions kept.
+
+---
+
 ## Latest fix — October 22, 2026
 
 Startup disk work now runs off the main actor; unchanged ledgers are no longer

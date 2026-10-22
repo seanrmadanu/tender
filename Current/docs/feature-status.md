@@ -1,6 +1,6 @@
 # Requested changes: personal implementation status
 
-Updated October 21, 2026 after local source audit and simulator validation.
+Updated October 22, 2026 after the direct-cart workflow change; prior feature audit retained.
 
 Active project: `Current/Tender.xcodeproj`. The separate `Merged/` copy is not
 maintained or used as the UI baseline. Original styling comes from pre-import
@@ -23,8 +23,8 @@ Simulator build passed. See `verification.md` for final UI results and evidence.
 | 5 | Automatic updates | Foreground and five-minute active checks, cached balance labels, retrieval timestamps, stale/error messages. No guaranteed real-time or background updates; explicit live balance refresh remains manual. |
 | 6 | Receipt entry | Local OCR prefills merchant/total/date/cash method; structured editable recognized line items, quantities, prices and masked payment details; original image bytes preserved. Replacing/removing an image clears its old parsed details; recognized payment updates the cash selector and payment text is editable. PDFs remain attachments. |
 | 7 | Cash | Dedicated cash-wallet type and payment selection; cash purchases affect that wallet only. |
-| 8 | Price labels | Local scanner suggests name/package/price, offers quantity, rejects ambiguous multi-price/multi-buy guesses. Existing price collection also prefills a detected price. Audit fixed two different prices on one line being mistaken for a single price. |
-| 9 | Two shopping actions | Add to Cart saves a grocery plan; Record Purchase opens reviewed expense entry and links a saved purchase to the plan. |
+| 8 | Price labels | Shopping Mode has a top-right scan icon (camera, with photo-library fallback and long-press option). Local scanner suggests name/package/price, offers quantity, rejects ambiguous multi-price/multi-buy guesses. Existing price collection also prefills a detected price. Audit fixed two different prices on one line being mistaken for a single price. |
+| 9 | Two shopping actions | Shopping Mode Add to Cart saves immediately to today’s grocery list, with no second form, category, account, store or reminder required. Name-only and price-only drafts are supported. Quantity sits beside unit price; totals drive the budget check and purchase form. Inline confirmation prevents duplicate taps. Record Purchase stays separate and links to the saved cart item. |
 | 10 | Dated groceries | Plans and purchases grouped by date, date picker/arrows, LEFT for earlier and RIGHT for later dates. Legacy undated items are assigned a stable date on first load. Saving a future cart switches to its date; Edit Shopping Plan updates name/store/quantity/date/reminder. Bank removals clear linked purchase flags. |
 | 11 | Voice plans | On-device US-English speech when supported, typed fallback, deterministic item/store/day/AM-PM-time parsing, review step, one-hour reminder scheduling. Informal “im going costco” and dotted 5:30 p.m. are covered by regressions. Complex language can require manual correction. |
 | 12 | Subscriptions | Local suggestions after three similar regularly spaced bank purchases; review before creating a recurring bill. No paid recurring endpoint. |

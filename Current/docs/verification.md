@@ -1,3 +1,38 @@
+## Shopping Mode quick cart — October 22, 2026
+
+Shopping Mode now saves directly to today's grocery list. No extra Shopping Item
+sheet or category/account/store/reminder entry is required for Add to Cart.
+Quantity controls sit beside unit price; the total feeds budget checks and the
+purchase form. A scan icon opens the camera (photo picker on devices without a
+camera; long-press offers a photo). Inline confirmation prevents duplicate taps
+and dismisses the keyboard. Scanned prices/photos are saved as observations when
+a price is available. Cart entries remain unpurchased until Record Purchase.
+
+Three distinct simulator UI regressions passed across focused runs:
+- Direct cart save without category or account; no expense; no duplicate; two
+  units at $2.50 persist as a $5.00 planned item after relaunch.
+- Quantity total is used by the budget check and purchase form; recording $5
+  deducts once from a $100 account and links the existing cart item as purchased.
+- Name-only item saves without a price and dismisses the keyboard.
+
+Final direct/name-only run: **2/2 passed** in
+`build/oct22-quick-cart-fresh-runner.log`. Purchase case: **1/1 passed** in
+`build/oct22-quick-cart-retest.log`. Simulator build succeeded. The initial
+purchase test matched both Home and Shopping Mode Record Purchase buttons; a
+stable Shopping Mode identifier fixed the selector. A later run used a stale
+installed test harness; it was removed and reinstalled, then both updated tests
+passed. Tender's app data was not uninstalled or reset; tests use the isolated
+TenderUITests ledger and disable bank requests.
+
+Reviewed the final dark-mode screenshots with keyboard dismissed, and an earlier
+light-mode screenshot. Final screenshot: `build/oct22-shopping-quick-cart-dark.png`.
+Camera capture/OCR accuracy, VoiceOver operation and maximum text-size layout
+still need device/visual validation. No physical iPhone installation or live bank
+action occurred. Core and backend were unchanged; their earlier results below
+remain historical, not new runs for this UI change.
+
+---
+
 ## Startup follow-up — October 22, 2026
 
 User reported a blank launch screen for more than 30 seconds when opening the

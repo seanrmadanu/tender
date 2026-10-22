@@ -1,7 +1,6 @@
-v4.1.1 — Nonblocking local ledger startup
+v4.1.2 — Direct Shopping Mode cart and compact quantity/scanner controls
 Updated October 22, 2026
 Active project: Current/Tender.xcodeproj
-36 core tests and 3 startup/persistence simulator UI tests passed.
-Backend unchanged; prior 30 backend tests passed October 21.
-See docs/verification.md for evidence and physical-device limits.
-Private configuration retained; no production deployment.
+Three distinct cart/purchase simulator UI regressions passed across focused runs.
+Prior startup/core/backend verification retained in docs/verification.md.
+Private configuration preserved; no deployment or physical iPhone installation.

@@ -66,3 +66,25 @@ https://developer.apple.com/design/human-interface-guidelines/accessibility
 https://developer.apple.com/design/human-interface-guidelines/layout
 https://developer.apple.com/design/human-interface-guidelines/tab-bars
 https://developer.apple.com/design/human-interface-guidelines/text-fields
+
+## October 22: Shopping Mode quick cart
+
+Removed the mandatory Shopping Item sheet from Shopping Mode → Add to Cart.
+The existing paper/green/serif design is preserved. The former decorative bag
+header was removed to make room for useful controls. Price is explicitly per
+item; normal text sizes place a minus/count/plus control to its right. Larger
+accessibility sizes stack those controls. Scan uses text.viewfinder at the top
+right; quantity and scan icons have 44-point targets and VoiceOver labels.
+Primary cart/purchase actions retain text to distinguish saving an intention
+from recording money spent.
+
+`entering-data.md > Best practices`: “Be clear about the data you need.”
+`buttons.md > Content`: “Try to associate familiar actions with familiar icons.”
+The icon-only quantity/scanner controls and optional cart metadata apply those
+guidelines to the requested compact flow. Cart default date is today, reminders
+are off, store is blank, and a missing name with a known price becomes Shopping
+item. Planning details remain editable from Groceries. A new scan clears the
+previous name/price so ambiguous OCR cannot silently reuse an old price.
+
+Camera/OCR on physical hardware remains a device check; simulator results are
+recorded in verification.md.

@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct BudgetView: View {
     @Environment(LedgerStore.self) private var store
@@ -61,20 +62,45 @@ struct ShoppingView: View {
     @State private var amount = ""
     @State private var categoryID: UUID?
     @State private var record = false
-    @State private var cart = false
+    @State private var quantity = 1
+    @State private var unit = "each"
+    @State private var camera = false
+    @State private var choosingPhoto = false
+    @State private var photo: PhotosPickerItem?
+    @State private var imageData: Data?
+    @State private var scanning = false
+    @State private var message: String?
+    @State private var savedCartID: UUID?
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var itemName = ""
+    @FocusState private var inputFocused: Bool
     private var category: BudgetCategory? { store.ledger.categories.first { $0.id == categoryID } }
-    private var decision: ShoppingDecision? { guard let c = category, let value = Money.cents(amount), value > 0 else { return nil }; return store.ledger.shopping(amount: value, category: c) }
+    private var cartPurchased: Bool { store.ledger.groceries.first { $0.id == savedCartID }?.purchasedAt != nil }
+    private var unitPrice: Int64? { Money.cents(amount) }
+    private var total: Int64? { unitPrice.map { $0 * Int64(quantity) } }
+    private var canAdd: Bool {
+        !scanning && savedCartID == nil &&
+        (!itemName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (unitPrice ?? 0) > 0) &&
+        (amount.isEmpty || (unitPrice ?? 0) > 0)
+    }
+    private var decision: ShoppingDecision? { guard let c = category, let value = total, value > 0, value <= 99_999_999_999 else { return nil }; return store.ledger.shopping(amount: value, category: c) }
     var body: some View {
         PaperScreen {
-            ZStack { Engraving().frame(height: 90); Image(systemName: "bag").font(.system(size: 34)).padding(20).background(Ink.paper, in: Circle()) }
             SectionHeading(title: "A moment before checkout.", subtitle: "Check the numbers. Then make the call.")
             PaperCard {
-                TenderField("Item or purchase name", text: $itemName)
-                Text("PLANNED PURCHASE").font(.system(.caption, design: .monospaced)).tracking(1.5).foregroundStyle(Ink.muted)
-                HStack(alignment: .firstTextBaseline) { Text("$").font(.largeTitle); TenderField("0.00", text: $amount).keyboardType(.decimalPad).font(.system(.largeTitle, design: .serif)).accessibilityLabel("Purchase amount in US dollars") }
+                TenderField("Item or purchase name", text: $itemName).focused($inputFocused)
+                Text("PRICE PER ITEM").font(.system(.caption, design: .monospaced)).tracking(1.5).foregroundStyle(Ink.muted)
+                if textSize.isAccessibilitySize {
+                    priceInput
+                    quantityControl
+                } else {
+                    HStack(spacing: 8) { priceInput; quantityControl }
+                }
+                if let total, total > 0 { AmountRow(label: "Total · \(quantity) × \(unit)", amount: total).accessibilityIdentifier("shopping-total") }
+                if scanning { ProgressView("Reading label…") }
+                if let message { Text(message).font(.caption).foregroundStyle(Ink.warning) }
                 Picker("Category", selection: $categoryID) { Text("Choose an envelope").tag(UUID?.none); ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }.pickerStyle(.menu)
-            }
+            }.disabled(scanning)
             if let decision {
                 PaperCard {
                     Label(decision.fits ? "Within your recorded budget" : "This needs a second look", systemImage: decision.fits ? "checkmark.seal" : "exclamationmark.triangle").font(.headline).foregroundStyle(decision.fits ? Ink.green : Ink.warning)
@@ -83,15 +109,93 @@ struct ShoppingView: View {
                     AmountRow(label: "Cash after purchase & bills", amount: decision.cashAfter)
                     Text(decision.fits ? "This amount fits both checks using your recorded balances." : "The purchase exceeds your category allocation, cash after bills, or both.").font(.subheadline).foregroundStyle(Ink.muted)
                 }
-                Button("Add to Cart") { cart = true }.buttonStyle(PrimaryButton())
-                Button("Record Purchase") { record = true }.buttonStyle(PrimaryButton()).disabled(!decision.hasAccount)
-            } else { Text("Enter an amount and choose a category to see both checks.").font(.subheadline).foregroundStyle(Ink.muted) }
-            Text("Cash uses recorded account snapshots, adjusted by your expenses, minus tracked bills due in the next 30 days. Unrecorded spending and pending charges may be missing. Checking does not reserve money.").font(.footnote).foregroundStyle(Ink.muted)
+            } else { Text("Category is optional for your cart. Choose one and enter a price to check your budget.").font(.subheadline).foregroundStyle(Ink.muted) }
+            Button(savedCartID == nil ? "Add to Cart" : (cartPurchased ? "Purchase Recorded" : "Added to Cart"), systemImage: savedCartID == nil ? "cart.badge.plus" : "checkmark") { addToCart() }
+                .buttonStyle(PrimaryButton()).disabled(!canAdd).accessibilityIdentifier("shopping-add-cart")
+            if savedCartID != nil { Text(cartPurchased ? "Saved in today’s purchases." : "Saved in today’s grocery list. No money spent.").font(.caption).foregroundStyle(Ink.muted).accessibilityIdentifier("shopping-cart-confirmation") }
+            Button("Record Purchase") { record = true }.buttonStyle(PrimaryButton()).disabled(decision?.hasAccount != true || scanning || cartPurchased).accessibilityIdentifier("shopping-record-purchase")
+            Text("Estimates use recorded balances and upcoming bills. Bank data may be delayed. Adding to Cart doesn’t spend or reserve money.").font(.footnote).foregroundStyle(Ink.muted)
             if store.ledger.isDemo { Label("You’re checking sample data", systemImage: "sparkle").font(.footnote) }
         }.animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: decision != nil)
             .navigationTitle("Shopping Mode").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
-            .sheet(isPresented: $record) { NavigationStack { ExpenseForm(initialAmount: amount, initialCategory: categoryID, initialMerchant: itemName) } }
-            .sheet(isPresented: $cart) { NavigationStack { GroceryForm(initialName: itemName, initialPrice: amount) } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true }
+                        else { choosingPhoto = true }
+                    } label: { Image(systemName: "text.viewfinder").frame(minWidth: 44, minHeight: 44) }
+                    .accessibilityLabel("Scan price label").accessibilityIdentifier("shopping-scan-label").disabled(scanning)
+                    .contextMenu { Button("Choose label photo", systemImage: "photo") { choosingPhoto = true } }
+                }
+            }
+            .onChange(of: itemName) { _, _ in savedCartID = nil }
+            .onChange(of: amount) { _, _ in savedCartID = nil }
+            .onChange(of: quantity) { _, _ in savedCartID = nil }
+            .photosPicker(isPresented: $choosingPhoto, selection: $photo, matching: .images)
+            .onChange(of: photo) { _, item in Task {
+                do { if let data = try await item?.loadTransferable(type: Data.self) { await scan(data) } }
+                catch { message = "Could not load this photo. Try another image." }
+            } }
+            .sheet(isPresented: $camera) { CameraPicker { data in Task { await scan(data) } } }
+            .sheet(isPresented: $record) { NavigationStack { ExpenseForm(initialAmount: total.map(Money.input) ?? "", initialCategory: categoryID, initialMerchant: itemName, groceryID: savedCartID) } }
+    }
+    private var priceInput: some View {
+        HStack(spacing: 4) {
+            Text("$").font(.title)
+            TenderField("0.00", text: $amount).keyboardType(.decimalPad).focused($inputFocused)
+                .font(.system(.title, design: .serif)).accessibilityLabel("Price per item in US dollars")
+                .accessibilityIdentifier("shopping-unit-price")
+        }.frame(maxWidth: .infinity)
+    }
+    private var quantityControl: some View {
+        HStack(spacing: 0) {
+            Button { quantity -= 1 } label: { Image(systemName: "minus").frame(width: 44, height: 44) }
+                .disabled(quantity <= 1).accessibilityLabel("Decrease quantity")
+            Text("\(quantity)").font(.body.monospacedDigit()).frame(minWidth: 28)
+                .accessibilityLabel("Quantity").accessibilityValue("\(quantity)").accessibilityIdentifier("shopping-quantity")
+            Button { quantity += 1 } label: { Image(systemName: "plus").frame(width: 44, height: 44) }
+                .disabled(quantity >= 99).accessibilityLabel("Increase quantity")
+        }.buttonStyle(.plain).background(Ink.line.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
+    }
+    private func addToCart() {
+        guard canAdd else { return }
+        var file: String?
+        do {
+            if let imageData, unitPrice != nil { file = try store.attach(imageData, extension: "jpg") }
+            let name = itemName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let observations = unitPrice.map { [PriceObservation(price: $0, store: "", photo: file)] } ?? []
+            let item = GroceryItem(name: name.isEmpty ? "Shopping item" : name, quantity: quantity, unit: unit,
+                                   observations: observations, plannedAt: Date(), remind: false)
+            if store.update({ $0.groceries.append(item) }) {
+                savedCartID = item.id
+                inputFocused = false
+                message = nil
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } else {
+                if let file { try? FileManager.default.removeItem(at: store.attachmentURL(file)) }
+                message = "Couldn’t save this item. Please try again."
+            }
+        } catch { message = "Couldn’t save the label photo. Please try again." }
+    }
+    private func scan(_ data: Data) async {
+        guard let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85), jpeg.count <= 20_000_000 else {
+            message = "Choose a photo under 20 MB."; return
+        }
+        scanning = true
+        inputFocused = false
+        savedCartID = nil
+        defer { scanning = false }
+        // Never carry a previous item's price into an ambiguous new scan.
+        amount = ""; itemName = ""; unit = "each"; imageData = nil
+        do {
+            let label = ShelfLabelParser.parse(try await ReceiptOCR.read(jpeg))
+            itemName = label.name ?? ""
+            amount = label.price.map(Money.input) ?? ""
+            unit = label.unit ?? "each"
+            imageData = jpeg
+            message = label.price == nil ? "Price is unclear. Enter the shelf price, or save the item without a price." : "Check the scanned price before adding."
+        } catch { message = "Couldn’t read the label. Enter the item or price here." }
+
     }
 }

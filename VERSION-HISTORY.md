@@ -1,3 +1,12 @@
+# Active: v4.1.2 — Shopping Mode quick cart
+
+October 22, 2026. Added quantity beside unit price and a top-right scanner icon.
+Add to Cart now saves directly without the Shopping Item form. Quantity totals,
+optional metadata, duplicate prevention and linked purchases verified locally.
+Pre-change checkpoint: `73765ed`. See latest Git commit and verification.md.
+
+---
+
 # Active: v4.1.1 — Startup follow-up
 
 October 22, 2026. Local ledger loading/migration moved off the main actor,
