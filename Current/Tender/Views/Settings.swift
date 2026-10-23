@@ -2,12 +2,19 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
+    @Environment(AccountAuth.self) private var auth
     @State private var resetting = false
     @Environment(LedgerStore.self) private var store
     var body: some View {
         Form {
             Section {
                 HStack { Image(systemName: "seal").font(.largeTitle); VStack(alignment: .leading) { Text("tender").font(.system(.title, design: .serif)); Text("Personal edition · USD").font(.caption) } }
+            }
+            Section("Signed in") {
+                Text(auth.email)
+                Button("Sign Out", role: .destructive) { auth.signOut() }
+                    .disabled(auth.busy || store.gmail.busy || store.bankUpdating || store.bankMaintenance)
+                if let message = auth.message { Text(message).font(.caption) }
             }
             Section("Your money") {
                 NavigationLink { AccountForm() } label: { Label("Accounts & Cash Wallet", systemImage: "wallet.bifold") }
@@ -24,7 +31,7 @@ struct SettingsView: View {
                 Button(role: .destructive) { resetting = true } label: { Label("Reset App", systemImage: "arrow.counterclockwise") }
                 if store.ledger.isDemo { NavigationLink("Review Old Sample Data") { SampleCleanupView() } }
             }
-            Section { Text("Apple/Google sign-in and separate online accounts are planned for the friends’ beta. This build uses your existing personal bank connection.").font(.footnote).foregroundStyle(.secondary) }
+            Section { Text("Your ledger is stored on this device for this account. Gmail access is optional. Bank connections for signed-in accounts are still being prepared.").font(.footnote).foregroundStyle(.secondary) }
         }.paperForm().navigationTitle("Settings")
             .sheet(isPresented: $resetting) { NavigationStack { PrivacySettingsView(resetApp: true).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { resetting = false } } } } }
     }
@@ -36,7 +43,7 @@ struct UpdateSettingsView: View {
             Section {
                 Toggle("Automatically check bank information", isOn: Binding(get: { store.automaticBankUpdates }, set: { store.automaticBankUpdates = $0 }))
                 Text("Checks when you open Tender and every five minutes while it is active. Retrieves provider-cached balances and available transaction updates; it does not request a paid on-demand bank refresh. Banks can take time to post changes.").font(.footnote)
-                Button("Check Now") { Task { await store.refreshBank(force: true) } }.disabled(store.bankUpdating || store.bankAccessPaused || BankConfiguration.load() == nil)
+                Button("Check Now") { Task { await store.refreshBank(force: true) } }.disabled(store.isAccountLedger || store.bankUpdating || store.bankAccessPaused || BankConfiguration.load() == nil)
                 if let date = store.bankFetchedAt { LabeledContent("Last balance retrieval", value: date.formatted(date: .abbreviated, time: .shortened)) }
                 if let message = store.bankMessage { Text(message).foregroundStyle(Ink.warning) }
                 Text("Wallet cards label cached balances. Recorded ledger balances remain separate and change only through reviewed snapshots or manual entries.").font(.footnote)
@@ -111,7 +118,7 @@ struct PrivacySettingsView: View {
     @State private var busy = false
     @State private var document = ExportDocument(data: Data())
     @State private var message: String?
-    private var remoteAccessUnknown: Bool { BankConfiguration.load() == nil && store.ledger.accounts.contains { $0.bankAccountKey != nil } }
+    private var remoteAccessUnknown: Bool { BankConfiguration.load() == nil && (resetApp || store.ledger.accounts.contains { $0.bankAccountKey != nil }) }
     var body: some View {
         Form {
             Section("Protection") {
@@ -121,11 +128,11 @@ struct PrivacySettingsView: View {
             Section {
                 if !resetApp { Button("Wipe My Bank Information", role: .destructive) { bankOnly = true; confirm = true }.disabled(busy || store.bankUpdating || store.gmail.busy) }
                 Button(resetApp ? "Reset App" : "Delete All My Tender Data", role: .destructive) { bankOnly = false; confirm = true }.disabled(busy || store.bankUpdating || store.gmail.busy)
-                if resetApp { Text("Forgets your saved Tender login, clears this device’s ledger, receipts, credentials, preferences and notifications, revokes saved bank connections, and returns to the login page. You will need to sign in again. Exported backups remain in Files. Sign-in still requires setup in this build.").font(.footnote) }
+                if resetApp { Text("Forgets your saved Tender login, clears all local Tender accounts, ledgers, receipts, credentials, preferences and notifications, revokes saved bank connections, and returns to the login page. You will need to sign in again. Exported backups remain in Files. Your online Firebase account remains; you can sign in again to start a fresh local ledger.").font(.footnote) }
                 if remoteAccessUnknown { Text("No connection credentials are saved. Deletion can remove device data, but cannot verify or revoke old remote bank access.").font(.footnote).foregroundStyle(Ink.warning) }
                 if busy { ProgressView("Revoking bank access and deleting data…") }
                 if let message { Text(message).font(.footnote) }
-            } footer: { Text("Bank wipe revokes saved bank connections and removes linked accounts, their expense records, imported activity and local recovery copies. Delete All also removes manual records, photos, email suggestions and Gmail credentials on this device. Revoke Google access in your Google Account to remove the grant entirely. There is no online sign-in account in this personal edition. Independently exported backups remain yours to delete in Files.") }
+            } footer: { Text("Bank wipe revokes saved bank connections and removes linked accounts, their expense records, imported activity and local recovery copies. Delete All also removes manual records, photos, email suggestions and Gmail credentials on this device. Revoke Google access in your Google Account to remove the grant entirely. Reset signs you out; it does not delete your Firebase account. Independently exported backups remain yours to delete in Files.") }
         }.paperForm().navigationTitle(resetApp ? "Reset App" : "Privacy & Delete Data")
             .onAppear { if resetApp { bankOnly = false } }
             .confirmationDialog(remoteAccessUnknown ? "Delete device data? Old remote bank access cannot be revoked without connection settings." : bankOnly ? "Wipe bank data and revoke access?" : "Delete all Tender data and revoke bank access?", isPresented: $confirm, titleVisibility: .visible) {
@@ -146,7 +153,7 @@ struct PrivacySettingsView: View {
         busy = true; store.bankMaintenance = true; defer { busy = false; store.bankMaintenance = false }
         do {
             let unknown = remoteAccessUnknown
-            if let config = BankConfiguration.load() { try await BankClient(configuration: config).disconnect() }
+            if resetApp || !store.isAccountLedger { if let config = BankConfiguration.load() { try await BankClient(configuration: config).disconnect() } }
             try store.eraseLocalData(bankOnly: bankOnly)
             if resetApp {
                 try await AppReset.forgetLoginAndPreferences()

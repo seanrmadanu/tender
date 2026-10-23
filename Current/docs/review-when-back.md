@@ -52,3 +52,12 @@ Manual paste/review and the loading page can be tried before Google setup. Compi
 ## Login-first development checkpoint
 
 User requested login first on install and a Settings reset. Implemented the login entry UI and confirmed reset route. Authentication remains blocked on provider configuration and backend ownership/session work, not just Google Client ID. Recommended Firebase with existing Google project; no service was configured or billing enabled. See account-login.md. Current cannot advance past welcome until real auth is added; prior usable personal version is 37f14da. No user data was erased.
+
+## v4.5 follow-up
+
+- Email/password account flow now implemented. Enable its provider in Firebase if not done.
+- Supplied Firebase plist has no Google CLIENT_ID/REVERSED_CLIENT_ID; enable Google in tender-84bd7 Authentication and download updated plist.
+- Apple and phone still need external provider/capability setup.
+- No login inherits the personal bank vault. Worker UID authorization/migration remains a separate implementation task. Manual accounts work after login.
+- Full reset signs out and clears all local account directories; it does not delete the online Firebase user.
+- User owns live authentication, account-switching and reset testing; only compilation/static checks performed. See firebase-auth.md.

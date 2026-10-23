@@ -1,3 +1,9 @@
+# Latest status — v4.5
+
+Email Firebase authentication and the authenticated Home route are now implemented. Google flow awaits updated Firebase client configuration; Apple/phone remain setup-dependent. Account bank access remains blocked pending server ownership enforcement. See [current setup and handoff](firebase-auth.md). Earlier development notes below are historical.
+
+---
+
 # Account login foundation — October 23, 2026
 
 ## Current state: setup required, NOT working authentication

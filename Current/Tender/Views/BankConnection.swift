@@ -5,6 +5,14 @@ import struct LinkKit.Plaid
 
 struct BankConnectionView: View {
     @Environment(LedgerStore.self) private var store
+    var body: some View {
+        if store.isAccountLedger {
+            PaperScreen { SectionHeading(title: "Bank connections", subtitle: "Account-based bank connection is being prepared. Add manual accounts and balances while setup is completed.") }.navigationTitle("Bank Connections")
+        } else { PersonalBankConnectionView() }
+    }
+}
+private struct PersonalBankConnectionView: View {
+    @Environment(LedgerStore.self) private var store
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var phase
     @State private var server = "https://tender-bank-bridge.tender-bank-bridge.workers.dev"

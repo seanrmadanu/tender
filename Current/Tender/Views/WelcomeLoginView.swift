@@ -4,6 +4,8 @@ import AuthenticationServices
 /// Account entry point. Never unlock a personal ledger from a provider button.
 /// Authentication and per-user storage must be configured before enabling these actions.
 struct WelcomeLoginView: View {
+    @Environment(AccountAuth.self) private var auth
+    @State private var emailForm = false
     @State private var selectedMethod: String?
     var body: some View {
         ScrollView {
@@ -21,11 +23,11 @@ struct WelcomeLoginView: View {
                 }
                 PaperCard {
                     VStack(spacing: 14) {
-                        Button { selectedMethod = "Email" } label: {
+                        Button { emailForm = true } label: {
                             Label("Continue with email", systemImage: "envelope")
                                 .frame(maxWidth: .infinity, minHeight: 52)
                         }.buttonStyle(PrimaryButton())
-                        Button { selectedMethod = "Google" } label: {
+                        Button { Task { await auth.googleLogin() } } label: {
                             Text("Continue with Google").font(.headline)
                                 .frame(maxWidth: .infinity, minHeight: 54)
                                 .background(Ink.paper, in: RoundedRectangle(cornerRadius: 14))
@@ -49,9 +51,9 @@ struct WelcomeLoginView: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("Sign-in setup required", systemImage: "info.circle").font(.subheadline.weight(.semibold))
-                    Text("Account sign-in is not enabled in this build yet. These options will be available after setup.")
-                        .font(.footnote).foregroundStyle(Ink.muted)
+                    if auth.busy { ProgressView("Signing in…") }
+                    if let message = auth.message { Text(message).font(.footnote).foregroundStyle(Ink.warning) }
+                    Text("Apple and phone sign-in require additional setup.").font(.footnote).foregroundStyle(Ink.muted)
                     Text("Connecting Gmail for subscription notices is a separate, optional step.")
                         .font(.footnote).foregroundStyle(Ink.muted)
                 }
@@ -61,11 +63,37 @@ struct WelcomeLoginView: View {
         }
         .background { Ink.paper.ignoresSafeArea(); Engraving().frame(height: 350).frame(maxHeight: .infinity, alignment: .top).ignoresSafeArea() }
         .foregroundStyle(Ink.green)
+        .disabled(auth.busy)
+        .sheet(isPresented: $emailForm) { NavigationStack { EmailAccountView() } }
         .accessibilityIdentifier("welcome-login")
         .alert("Sign-in isn't available yet", isPresented: Binding(get: { selectedMethod != nil }, set: { if !$0 { selectedMethod = nil } })) {
             Button("OK") { selectedMethod = nil }
         } message: {
             Text("\(selectedMethod ?? "Account") sign-in still needs account-service configuration. No account has been created and your saved financial data has not been opened.")
         }
+    }
+}
+
+struct EmailAccountView: View {
+    @Environment(AccountAuth.self) private var auth
+    @Environment(\.dismiss) private var dismiss
+    @State private var email = ""
+    @State private var password = ""
+    @State private var create = false
+    var body: some View {
+        Form {
+            Picker("Account", selection: $create) { Text("Sign In").tag(false); Text("Create Account").tag(true) }.pickerStyle(.segmented)
+            TextField("Email", text: $email).textContentType(.emailAddress).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
+            SecureField("Password", text: $password).textContentType(create ? .newPassword : .password)
+            if create { Text("Use at least 6 characters, or the stronger password required by this app’s account policy.").font(.caption) }
+            Button(create ? "Create Account" : "Sign In") { Task { await auth.emailLogin(email, password: password, create: create) } }
+                .disabled(!email.contains("@") || password.isEmpty || (create && password.count < 6) || auth.busy)
+            Button("Forgot Password?") { Task { await auth.resetPassword(email) } }.disabled(!email.contains("@") || auth.busy)
+            if auth.busy { ProgressView("Connecting…") }
+            if let message = auth.message { Text(message).font(.footnote).foregroundStyle(Ink.warning) }
+        }.paperForm().navigationTitle(create ? "Create Account" : "Sign In")
+            .toolbar { Button("Close") { dismiss() }.disabled(auth.busy) }
+            .interactiveDismissDisabled(auth.busy)
+            .onDisappear { password = "" }
     }
 }

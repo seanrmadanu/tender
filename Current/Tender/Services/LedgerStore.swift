@@ -6,7 +6,8 @@ import OSLog
 
 @MainActor @Observable
 final class LedgerStore {
-    let gmail = GmailSubscriptions()
+    let gmail: GmailSubscriptions
+    let isAccountLedger: Bool
     var ledger: Ledger
     var error: String?
     private(set) var hasLoaded = false
@@ -25,13 +26,15 @@ final class LedgerStore {
         set { UserDefaults.standard.set(newValue, forKey: "automaticBankUpdates") }
     }
     let root: URL
-    init() {
-        #if DEBUG
-        let testing = ProcessInfo.processInfo.arguments.contains("--ui-testing")
-        root = URL.documentsDirectory.appending(path: testing ? "TenderUITests" : "Tender", directoryHint: .isDirectory)
-        #else
-        root = URL.documentsDirectory.appending(path: "Tender", directoryHint: .isDirectory)
-        #endif
+    init(accountKey: String? = nil) {
+        isAccountLedger = accountKey != nil
+        gmail = GmailSubscriptions(scope: accountKey ?? "legacy")
+        if let accountKey {
+            // accountKey is a SHA256 digest of Firebase project + verified UID.
+            root = URL.documentsDirectory.appending(path: "TenderAccounts", directoryHint: .isDirectory).appending(path: accountKey, directoryHint: .isDirectory)
+        } else {
+            root = URL.documentsDirectory.appending(path: "Tender", directoryHint: .isDirectory)
+        }
         ledger = .empty()
     }
     // Initialization stays cheap: no filesystem, validation, or migration work
@@ -182,6 +185,7 @@ final class LedgerStore {
         }
     }
     func refreshBank(force: Bool = false) async {
+        guard !isAccountLedger else { bankMessage = "Bank connections for signed-in accounts are not available yet. Manual accounts work now."; return }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--ui-testing") { return }
         #endif
@@ -244,7 +248,7 @@ final class LedgerStore {
             where !next.attachmentNames.contains(file.lastPathComponent) {
             try FileManager.default.removeItem(at: file)
         }
-        try BankConfiguration.remove()
+        if !isAccountLedger { try BankConfiguration.remove() }
         UserDefaults.standard.set(true, forKey: "bankAccessPaused")
         Task { await refreshReminders() }
     }

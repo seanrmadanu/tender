@@ -1,3 +1,17 @@
+## v4.5 — Firebase email authentication and per-user local ledgers (October 23, 2026)
+
+Bundled the supplied Firebase iOS plist for tender-84bd7. Added real email/password sign-up, sign-in, password reset and persisted Firebase REST sessions in device-only Keychain. Launch refreshes/verifies saved identity before mounting Home; sign-out clears the session and notifications. No live authentication or email was attempted by the assistant.
+
+Each verified Firebase UID receives a separate project-scoped hashed local ledger directory and separate Gmail credential keys. Existing personal ledger/bank credentials are not inherited. Account-based bank UI and automatic bridge calls are blocked until the Worker validates Firebase identities and routes vaults by UID. Manual accounts and local finance features are available after successful login. No Worker deployment.
+
+Google OAuth-to-Firebase flow is implemented with state, PKCE and nonce/client checks, but the supplied plist lacks CLIENT_ID and REVERSED_CLIENT_ID. Enable Google (and Email/Password) in Firebase Authentication and download the updated plist. Google cannot start until that configuration is added. Apple/phone remain setup-dependent. Old Gmail client configuration remains separate.
+
+Reset App clears Firebase login, all local Tender account/legacy directories, Gmail/bank credentials, app preferences/caches/cookies and notifications, then drops in-memory session state. It attempts revocation of saved legacy bank connections first when credentials exist. Exported backups, online Firebase account and OS/Google grants remain. No data reset was executed.
+
+Validation: final simulator-target build passed in Current/build/oct23-firebase-auth-final-build.log and git diff --check passed. No runtime/UI/device/live-email/OAuth/reset tests or installation, per user instruction. Full behavior remains user-verifiable. Details and remaining setup: Current/docs/firebase-auth.md. Prior checkpoint fc844fb; prior usable personal-bank edition 37f14da. Merged untouched.
+
+---
+
 ## v4.4 development checkpoint — Login entry and Settings reset (October 23, 2026)
 
 Normal launch shows the engraved login page with email/Google/Apple/phone options. This is a SETUP-REQUIRED UI foundation, not working authentication: provider actions display unavailable status, no credentials are collected, and there is no path into Home yet. Legacy ledger loading and automatic network refresh do not start. Existing files/credentials are preserved until explicit reset. Prior working personal app: 37f14da.

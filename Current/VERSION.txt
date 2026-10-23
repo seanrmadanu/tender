@@ -1,6 +1,8 @@
-v4.4-dev — Login entry and Settings reset foundation
+v4.5 — Firebase email authentication and isolated local ledgers
 Updated October 23, 2026
 Active project: Current/Tender.xcodeproj
-Build passed. Authentication is NOT implemented; login currently blocks Home.
-Setup/remaining work: docs/account-login.md
-Prior working personal version: 37f14da.
+Final compilation passed; live auth/runtime testing left to user.
+Google needs updated Firebase plist; Apple/phone pending provider setup.
+Bank integration disabled for signed-in accounts pending backend UID authorization.
+Setup: docs/firebase-auth.md
+Previous checkpoint: fc844fb.

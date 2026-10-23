@@ -35,6 +35,9 @@ private enum GmailKeys {
 
 @MainActor @Observable
 final class GmailSubscriptions: NSObject, ASWebAuthenticationPresentationContextProviding {
+    private let scope: String
+    init(scope: String = "legacy") { self.scope = scope; super.init() }
+    private func scoped(_ email: String) -> String { scope == "legacy" ? email : scope + ":" + email }
     var busy = false
     var message: String?
     private var session: ASWebAuthenticationSession?
@@ -100,22 +103,22 @@ final class GmailSubscriptions: NSObject, ASWebAuthenticationPresentationContext
             struct Profile: Decodable { var emailAddress: String }
             let profile = try JSONDecoder().decode(Profile.self, from: await request(URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/profile")!, token: token.access_token))
             let email = profile.emailAddress.lowercased()
-            guard let refresh = token.refresh_token ?? (try? GmailKeys.read(email).refresh) else { throw BankError.message("Reconnect and allow offline access to keep this account linked.") }
-            try GmailKeys.save(GmailCredential(access: token.access_token, refresh: refresh, expires: Date().addingTimeInterval(token.expires_in)), email: email)
+            guard let refresh = token.refresh_token ?? (try? GmailKeys.read(scoped(email)).refresh) else { throw BankError.message("Reconnect and allow offline access to keep this account linked.") }
+            try GmailKeys.save(GmailCredential(access: token.access_token, refresh: refresh, expires: Date().addingTimeInterval(token.expires_in)), email: scoped(email))
             if !store.update({ ledger in
                 if ledger.subscriptionMailboxes == nil { ledger.subscriptionMailboxes = [] }
                 if !ledger.subscriptionMailboxes!.contains(where: { $0.id == email }) { ledger.subscriptionMailboxes!.append(SubscriptionMailbox(id: email)) }
-            }) { try? GmailKeys.remove(email); return }
+            }) { try? GmailKeys.remove(scoped(email)); return }
             message = "Connected \(email). Tap Check Emails to find suggestions."
         } catch { message = error.localizedDescription }
     }
     private func access(_ email: String) async throws -> String {
-        var credential = try GmailKeys.read(email)
+        var credential = try GmailKeys.read(scoped(email))
         if credential.expires < Date().addingTimeInterval(60) {
             let token = try await exchange(["client_id": clientID, "grant_type": "refresh_token", "refresh_token": credential.refresh])
             credential.access = token.access_token; credential.expires = Date().addingTimeInterval(token.expires_in)
             credential.refresh = token.refresh_token ?? credential.refresh
-            try GmailKeys.save(credential, email: email)
+            try GmailKeys.save(credential, email: scoped(email))
         }
         return credential.access
     }
@@ -187,7 +190,7 @@ final class GmailSubscriptions: NSObject, ASWebAuthenticationPresentationContext
     func disconnect(_ email: String, store: LedgerStore) {
         guard !busy else { return }
         do {
-            try GmailKeys.remove(email)
+            try GmailKeys.remove(scoped(email))
             _ = store.update { ledger in ledger.subscriptionMailboxes?.removeAll { $0.id == email }; ledger.subscriptionEmails?.removeAll { $0.mailbox == email } }
             message = "Disconnected on this device. Confirmed subscriptions remain. You can also revoke Tender in your Google Account permissions."
         } catch { message = error.localizedDescription }

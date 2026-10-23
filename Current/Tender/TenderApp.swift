@@ -3,21 +3,31 @@ import AppIntents
 
 @main
 struct TenderApp: App {
-    @State private var store = LedgerStore()
-    @State private var showLogin = true
+    @State private var auth = AccountAuth()
     var body: some Scene {
         WindowGroup {
-            // Fresh installs and upgrades both start at account entry. The old
-            // personal ledger is not loaded or migrated into an arbitrary login.
             Group {
-                if showLogin { WelcomeLoginView() }
-                else if store.hasLoaded { RootView().environment(store) }
-                else { LedgerLoadingView().task { await store.loadIfNeeded() } }
-            }.tint(Ink.green)
-                .onReceive(NotificationCenter.default.publisher(for: .resetToLogin)) { _ in showLogin = true; store = LedgerStore() }
+                if auth.restoring { LedgerLoadingView() }
+                else if let key = auth.storageKey { AuthenticatedLedgerView(accountKey: key).id(key) }
+                else { WelcomeLoginView() }
+            }
+            .environment(auth).tint(Ink.green)
+            .task { await auth.restore() }
+            .onReceive(NotificationCenter.default.publisher(for: .resetToLogin)) { _ in auth.forgetSession() }
         }
     }
 }
+private struct AuthenticatedLedgerView: View {
+    @State private var store: LedgerStore
+    init(accountKey: String) { _store = State(initialValue: LedgerStore(accountKey: accountKey)) }
+    var body: some View {
+        Group {
+            if store.hasLoaded { RootView() }
+            else { LedgerLoadingView() }
+        }.environment(store).task { await store.loadIfNeeded() }
+    }
+}
+
 struct ShoppingIntent: AppIntent {
     static var title: LocalizedStringResource = "Open Shopping Mode"
     static var description = IntentDescription("Check a purchase against your category budget and recorded cash.")
