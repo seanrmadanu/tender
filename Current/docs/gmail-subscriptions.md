@@ -1,14 +1,14 @@
 # Gmail subscriptions — v4.3 setup and handoff
 
-Implemented in Current only. Google is **not configured**, so Connect Gmail stays disabled. No account was accessed, no credentials were supplied, and no production service was changed. This connects subscription mailboxes, not a Tender sign-in account.
+Implemented in Current only. As of October 23, the user-provided public iOS OAuth client ID and matching reversed callback scheme are configured in Info.plist. Connect Gmail can now open the authorization flow after rebuilding. Google consent, test-user access, scopes and live OAuth are not verified. No mailbox was accessed and no production service was changed. This connects subscription mailboxes, not a Tender sign-in account.
 
 ## Configure the personal build
 
 1. In Google Cloud, create/select a project and enable **Gmail API**.
 2. Configure the OAuth consent app. For personal development, keep it in Testing and add each Gmail address you intend to connect as a test user. Request only `https://www.googleapis.com/auth/gmail.readonly`.
 3. Create an **iOS OAuth client** using the exact bundle identifier from the Tender target's Signing & Capabilities. Do not create a Web client or place a client secret in the app.
-4. In `Current/Tender/Info.plist`, fill the empty `TenderGoogleClientID` with that public client ID.
-5. Add another dictionary under `CFBundleURLTypes`, with `CFBundleURLSchemes` containing the reversed client ID. Example: `123-example.apps.googleusercontent.com` becomes `com.googleusercontent.apps.123-example`. Preserve the existing `tender` scheme. The implemented callback is that reversed scheme followed by `:/oauthredirect`.
+4. In `Current/Tender/Info.plist`, set `TenderGoogleClientID` to that public client ID (completed for this build).
+5. Add another dictionary under `CFBundleURLTypes`, with `CFBundleURLSchemes` containing the reversed client ID. Example: `123-example.apps.googleusercontent.com` becomes `com.googleusercontent.apps.123-example`. Preserve the existing `tender` scheme (completed for this build). The implemented callback is that reversed scheme followed by `:/oauthredirect`.
 6. Rebuild/install from Current. Open **Settings → Subscription Emails**, or **Activity → Recurring → Trials & subscription emails**. Connect each address separately, then tap Check Emails. Live OAuth, refresh-token issuance and multiple-account behavior still require device verification.
 
 Google's [iOS API access guide](https://developers.google.com/identity/sign-in/ios/api-access) documents the iOS client, bundle identifier and reversed URL scheme. This implementation uses a native system authentication session with PKCE/state and REST token exchange, rather than adding the Google Sign-In SDK.

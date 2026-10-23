@@ -12,9 +12,17 @@
 				<string>tender</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.sean.tender.google</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.352739504670-f6h0f0kql6oq7qh4evv0ca2ksqdrj94n</string>
+			</array>
+		</dict>
 	</array>
 	<key>TenderGoogleClientID</key>
-	<string></string>
+	<string>352739504670-f6h0f0kql6oq7qh4evv0ca2ksqdrj94n.apps.googleusercontent.com</string>
 	<key>UIFileSharingEnabled</key>
 	<false/>
 	<key>UILaunchScreen</key>

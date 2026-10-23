@@ -1,6 +1,7 @@
-v4.3 — Optional Gmail subscriptions and loading page
-Updated October 22, 2026
+v4.3.1 — Google iOS client configuration
+Updated October 23, 2026
 Active project: Current/Tender.xcodeproj
-Final simulator-target compilation passed; user owns runtime testing.
-Gmail OAuth setup required: docs/gmail-subscriptions.md
-Prior checkpoint: 3442209 (v4.2); earlier versions retained in Git.
+Simulator-target compilation passed; user owns runtime testing.
+Public Google client ID and callback configured; live OAuth unverified.
+Tender account login remains pending; Gmail is a separate authorization.
+Prior checkpoint: b60f415.

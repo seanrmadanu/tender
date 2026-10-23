@@ -568,3 +568,15 @@ Work in **Current/Tender.xcodeproj**. Prior code checkpoint: **3442209 (v4.2)**.
 **Verification:** Final simulator-target compilation passed in `Current/build/oct22-subscriptions-final-build.log`; whitespace diff check passed. No runtime/unit/UI/device/OAuth/email/bank/notification tests, installation or paid services. User owns behavior testing. Earlier sandbox-only build could not access Xcode package/cache services; permitted compilation succeeded. Live bank history availability remains unverified and may depend on the previously undeployed Worker.
 
 ---
+
+[2026-10-23] ## v4.3.1 — Google iOS client configuration (October 23, 2026)
+
+Configured the user-provided public Google iOS client ID and matching reversed URL scheme in Current/Tender/Info.plist. The existing tender shopping shortcut scheme is retained. The Gmail configured check can now enable Connect Gmail after rebuild/install. No tokens, client secrets, Google Cloud changes or live account requests were made.
+
+Validation: plist lint, whitespace diff check and simulator-target build passed (Current/build/oct23-google-configuration-build.log). No runtime/UI/OAuth/email testing or device install, per user preference.
+
+Tender account login remains pending: Gmail permission is separate from basic Google sign-in. A real account feature must validate Google identity, create backend sessions, isolate ledger/bank ownership per user, and handle sign-out/deletion without exposing the existing personal bridge. Do not treat the Gmail connection as completed Tender authentication. Google test-user/consent/scope settings remain user-managed and unverified.
+
+Prior checkpoint: b60f415. Current only; Merged untouched.
+
+---
