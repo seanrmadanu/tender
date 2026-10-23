@@ -1,8 +1,8 @@
-v4.5 — Firebase email authentication and isolated local ledgers
+v4.5.1 — Firebase Google account login configuration
 Updated October 23, 2026
 Active project: Current/Tender.xcodeproj
-Final compilation passed; live auth/runtime testing left to user.
-Google needs updated Firebase plist; Apple/phone pending provider setup.
+Compilation and built-app configuration checks passed; live login testing left to user.
+Google client and callback configured; Apple/phone pending provider setup.
 Bank integration disabled for signed-in accounts pending backend UID authorization.
 Setup: docs/firebase-auth.md
-Previous checkpoint: fc844fb.
+Previous checkpoint: 00e5b97.

@@ -10,11 +10,11 @@ Every user has a separate local path: Documents/TenderAccounts/SHA256(project + 
 
 Continue with Google implements a native browser OAuth code flow with PKCE, state and nonce/client checks, then exchanges Google's identity token with Firebase. Firebase validates the identity token; decoded claims alone never unlock a ledger. It requests openid/email/profile only, separately from optional Gmail permissions.
 
-## Google setup still required
+## Google configuration integrated — v4.5.1
 
-The uploaded plist contains API_KEY, PROJECT_ID, GOOGLE_APP_ID and BUNDLE_ID, but **no CLIENT_ID or REVERSED_CLIENT_ID**. Google account sign-in cannot run with this file. Do not substitute the earlier OAuth client from tender-512506 for the Firebase project's client without explicitly configuring provider trust.
+The updated user-supplied Firebase plist now contains CLIENT_ID and REVERSED_CLIENT_ID for project tender-84bd7. Its matching callback scheme is registered in Tender's Info.plist alongside the existing Gmail and shopping schemes. Continue with Google can now start the implemented OAuth-to-Firebase flow after rebuilding/installing this version.
 
-In Firebase console → tender-84bd7 → Authentication → Sign-in method, enable Email/Password and Google, set Google's support email, and save. Download the updated iOS GoogleService-Info.plist from Project Settings. Supply that file so its CLIENT_ID and matching reversed URL scheme can be integrated. Provider enablement has not been inspected or changed by the assistant. The earlier TenderGoogleClientID remains dedicated to Gmail authorization in the separate Google project; Gmail Test users/consent are independent.
+User screenshots show Email/Password enabled and the Google provider's updated-configuration download prompt. Live provider sign-in remains untested. Use Email/Password, not the separate Email link (passwordless) option, which this app does not implement. The earlier TenderGoogleClientID remains dedicated to Gmail authorization in the separate Google project; Gmail Test users/consent are independent.
 
 Apple and phone remain marked as setup-dependent. Apple developer/provider configuration and phone app verification/delivery/billing must be completed before enabling them. No paid services or external account changes were made.
 

@@ -330,3 +330,11 @@ Moved the active app and supporting files into `Current/` (v3), with historical 
 ## User-reported live Plaid success — October 21
 
 The user now reports successful Plaid connection and visible balances. This supersedes the earlier not-yet-connected setup state. Specific banks/accounts, device/build details, snapshot application, refresh and persistence have not been independently inspected. The manual test plan is `Tender-Test-Checklist.md` at the workspace root; its unchecked cases remain pending. No new app tests or live bank calls were performed while writing it.
+
+## v4.5.1 — Google account login configuration (October 23, 2026)
+
+Integrated the updated user-supplied GoogleService-Info (1).plist into Current/Tender/GoogleService-Info.plist for Firebase project tender-84bd7. Added its matching reversed client callback scheme in Info.plist, retaining the separate Gmail OAuth client and tender shortcut scheme. The existing Google OAuth-to-Firebase flow now passes its configuration gate. No authentication logic or user data changed.
+
+Validation: simulator-target build passed (Current/build/oct23-firebase-google-config-build.log); verified the built app contains matching Firebase project/bundle/client callback configuration; plist lint and git diff --check passed. No runtime/UI/live-auth tests or device installation, per user preference. Rebuild/run Current/Tender.xcodeproj on the phone and test Continue with Google. Apple/phone and per-user bank backend authorization remain pending. No Worker deployment or account reset. Previous checkpoint: 00e5b97. Merged and archives untouched.
+
+---

@@ -607,3 +607,11 @@ Reset App clears Firebase login, all local Tender account/legacy directories, Gm
 Validation: final simulator-target build passed in Current/build/oct23-firebase-auth-final-build.log and git diff --check passed. No runtime/UI/device/live-email/OAuth/reset tests or installation, per user instruction. Full behavior remains user-verifiable. Details and remaining setup: Current/docs/firebase-auth.md. Prior checkpoint fc844fb; prior usable personal-bank edition 37f14da. Merged untouched.
 
 ---
+
+[2026-10-23] ## v4.5.1 — Google account login configuration (October 23, 2026)
+
+Integrated the updated user-supplied GoogleService-Info (1).plist into Current/Tender/GoogleService-Info.plist for Firebase project tender-84bd7. Added its matching reversed client callback scheme in Info.plist, retaining the separate Gmail OAuth client and tender shortcut scheme. The existing Google OAuth-to-Firebase flow now passes its configuration gate. No authentication logic or user data changed.
+
+Validation: simulator-target build passed (Current/build/oct23-firebase-google-config-build.log); verified the built app contains matching Firebase project/bundle/client callback configuration; plist lint and git diff --check passed. No runtime/UI/live-auth tests or device installation, per user preference. Rebuild/run Current/Tender.xcodeproj on the phone and test Continue with Google. Apple/phone and per-user bank backend authorization remain pending. No Worker deployment or account reset. Previous checkpoint: 00e5b97. Merged and archives untouched.
+
+---

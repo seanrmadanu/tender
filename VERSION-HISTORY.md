@@ -1,3 +1,11 @@
+## v4.5.1 — Google account login configuration (October 23, 2026)
+
+Integrated the updated user-supplied GoogleService-Info (1).plist into Current/Tender/GoogleService-Info.plist for Firebase project tender-84bd7. Added its matching reversed client callback scheme in Info.plist, retaining the separate Gmail OAuth client and tender shortcut scheme. The existing Google OAuth-to-Firebase flow now passes its configuration gate. No authentication logic or user data changed.
+
+Validation: simulator-target build passed (Current/build/oct23-firebase-google-config-build.log); verified the built app contains matching Firebase project/bundle/client callback configuration; plist lint and git diff --check passed. No runtime/UI/live-auth tests or device installation, per user preference. Rebuild/run Current/Tender.xcodeproj on the phone and test Continue with Google. Apple/phone and per-user bank backend authorization remain pending. No Worker deployment or account reset. Previous checkpoint: 00e5b97. Merged and archives untouched.
+
+---
+
 ## v4.5 — Firebase email authentication and per-user local ledgers (October 23, 2026)
 
 Bundled the supplied Firebase iOS plist for tender-84bd7. Added real email/password sign-up, sign-in, password reset and persisted Firebase REST sessions in device-only Keychain. Launch refreshes/verifies saved identity before mounting Home; sign-out clears the session and notifications. No live authentication or email was attempted by the assistant.
