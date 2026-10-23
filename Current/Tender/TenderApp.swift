@@ -10,13 +10,7 @@ struct TenderApp: App {
                 if store.hasLoaded {
                     RootView()
                 } else {
-                    ZStack {
-                        Ink.paper.ignoresSafeArea()
-                        VStack(spacing: 16) {
-                            Text("tender").font(.system(.largeTitle, design: .serif))
-                            ProgressView("Opening your ledger…")
-                        }.foregroundStyle(Ink.green)
-                    }.accessibilityIdentifier("ledger-loading")
+                    LedgerLoadingView()
                 }
             }
             .environment(store).tint(Ink.green)

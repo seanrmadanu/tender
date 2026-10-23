@@ -62,6 +62,13 @@ public struct RecurringBill: Identifiable, Codable, Equatable, Sendable {
     public var cycle: BillingCycle = .monthly
     public var remind: Bool = false
     public var recurrenceAnchor: Date? = nil
+    public var cancelledAt: Date? = nil
+    public var trialEndsAt: Date? = nil
+    public var renewalAmountUnknown: Bool? = nil
+    public var source: String? = nil
+    public var sourceMailbox: String? = nil
+    public var sourceEvidenceID: String? = nil
+    public var bankSuggestionID: String? = nil
     public var monthlyEquivalent: Int64 {
         switch cycle { case .monthly: amount; case .yearly: (amount + 6) / 12; case .weekly: (amount * 52 + 6) / 12 }
     }
@@ -112,6 +119,10 @@ public struct Ledger: Codable, Equatable, Sendable {
     public var recurring: [RecurringBill] = []
     public var groceries: [GroceryItem] = []
     public var bankActivity: [BankActivityItem]? = nil
+    public var subscriptionMailboxes: [SubscriptionMailbox]? = nil
+    public var subscriptionEmails: [SubscriptionEmail]? = nil
+    public var ignoredSubscriptionIDs: [String]? = nil
+    public var activeRecurring: [RecurringBill] { recurring.filter { $0.cancelledAt == nil } }
     public init() {}
     public var activeAccounts: [Account] { accounts.filter { $0.isArchived != true } }
     public var available: Int64 { activeAccounts.reduce(0) { $0 + $1.available } }
@@ -144,7 +155,7 @@ public struct Ledger: Codable, Equatable, Sendable {
     public func remaining(_ category: BudgetCategory, at date: Date = Date()) -> Int64 { category.limit - spent(category: category.id, in: month(at: date)) }
     public func upcomingReserve(at date: Date = Date(), calendar: Calendar = .current) -> Int64 {
         let end = calendar.date(byAdding: .day, value: 30, to: calendar.startOfDay(for: date))!
-        return recurring.reduce(0) { total, bill in
+        return activeRecurring.reduce(0) { total, bill in
             var due = bill.nextDue
             var reserve: Int64 = 0
             // Include overdue bills once, and every occurrence in the next 30 days.
@@ -204,7 +215,12 @@ public struct Ledger: Codable, Equatable, Sendable {
         accounts[i].balanceRevision = UUID()
     }
     public func validated() throws -> Ledger {
-        guard schemaVersion == 1, categories.count <= 100, accounts.count <= 100, expenses.count <= 100_000,
+        guard (subscriptionMailboxes ?? []).count <= 20,
+              Set((subscriptionMailboxes ?? []).map(\.id)).count == (subscriptionMailboxes ?? []).count,
+              (subscriptionEmails ?? []).count <= 5000,
+              Set((subscriptionEmails ?? []).map(\.id)).count == (subscriptionEmails ?? []).count,
+              (ignoredSubscriptionIDs ?? []).count <= 1000,
+              schemaVersion == 1, categories.count <= 100, accounts.count <= 100, expenses.count <= 100_000,
               recurring.count <= 1000, groceries.count <= 10_000,
               Set(categories.map(\.id)).count == categories.count,
               Set(accounts.map(\.id)).count == accounts.count,
@@ -222,7 +238,7 @@ public struct Ledger: Codable, Equatable, Sendable {
               categories.allSatisfy({ $0.limit >= 0 && $0.limit <= 99_999_999_999 }),
               accounts.allSatisfy({ absSafe($0.available) <= 99_999_999_999 }),
               expenses.allSatisfy({ e in e.amount > 0 && e.amount <= 99_999_999_999 && categories.contains(where: { $0.id == e.categoryID }) && accounts.contains(where: { $0.id == e.accountID }) && safeAttachment(e.attachment) }),
-              recurring.allSatisfy({ bill in bill.amount > 0 && bill.amount <= 99_999_999_999 && categories.contains(where: { $0.id == bill.categoryID }) }),
+              recurring.allSatisfy({ bill in (bill.amount > 0 || (bill.amount == 0 && bill.renewalAmountUnknown == true && bill.trialEndsAt != nil)) && bill.amount <= 99_999_999_999 && categories.contains(where: { $0.id == bill.categoryID }) }),
               groceries.allSatisfy({ $0.quantity > 0 && $0.quantity <= 999 && $0.observations.count <= 10_000 && $0.observations.allSatisfy({ $0.price > 0 && $0.price <= 99_999_999_999 && safeAttachment($0.photo) }) }) else { throw LedgerError.invalidBackup }
         return self
     }

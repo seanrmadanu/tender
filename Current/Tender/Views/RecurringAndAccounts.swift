@@ -7,7 +7,10 @@ struct RecurringList: View {
     private var suggestions: [SubscriptionSuggestion] { store.ledger.subscriptionSuggestions }
     var body: some View {
         SectionHeading(title: "Know what’s coming.", subtitle: "Subscriptions, bills, and the little renewals.")
-        PaperCard { AmountRow(label: "Monthly equivalent", amount: store.ledger.recurring.reduce(0) { $0 + $1.monthlyEquivalent }); AmountRow(label: "Reserved for next 30 days", amount: store.ledger.upcomingReserve()) }
+        PaperCard { AmountRow(label: "Monthly equivalent", amount: store.ledger.activeRecurring.reduce(0) { $0 + $1.monthlyEquivalent }); AmountRow(label: "Reserved for next 30 days", amount: store.ledger.upcomingReserve()) }
+        NavigationLink { EmailSubscriptionsView() } label: {
+            Label("Trials & subscription emails", systemImage: "envelope")
+        }
         PaperCard {
             HStack {
                 Text("Find recurring payments").font(.headline)
@@ -23,6 +26,9 @@ struct RecurringList: View {
             Text("Suggestions need at least two similarly priced weekly, monthly or yearly charges from the same merchant and account. Review each suggestion before adding it.").font(.caption).foregroundStyle(Ink.muted)
             if suggestions.isEmpty { Text("No repeated-payment matches yet.").font(.caption) }
             NavigationLink("Review bank purchases") { BankActivityView() }
+            if !(store.ledger.ignoredSubscriptionIDs ?? []).isEmpty {
+                Button("Review ignored suggestions again") { _ = store.update { $0.ignoredSubscriptionIDs = [] } }
+            }
         }
         if !suggestions.isEmpty {
             SectionHeading(title: "Possible subscriptions", subtitle: "Bank and recorded purchases · review before adding")
@@ -30,6 +36,12 @@ struct RecurringList: View {
                 Button { suggestion = candidate } label: {
                     HStack { VStack(alignment: .leading) { Text(candidate.merchant); Text("\(candidate.occurrences) similar charges · \(candidate.cycle.rawValue)\(candidate.occurrences == 2 ? " · Early hint" : "")").font(.caption) }; Spacer(); Text(Money.format(candidate.amount)) }
                 }.frame(minHeight: 48)
+                Button("Ignore suggestion", role: .destructive) {
+                    _ = store.update { ledger in
+                        if ledger.ignoredSubscriptionIDs == nil { ledger.ignoredSubscriptionIDs = [] }
+                        ledger.ignoredSubscriptionIDs?.append(candidate.id)
+                    }
+                }.font(.caption)
             }
             Text("Two charges are an early hint, not a confirmed subscription. Regular purchases can look recurring; confirm the merchant and schedule before saving.").font(.footnote)
         }
@@ -37,12 +49,19 @@ struct RecurringList: View {
         ForEach(store.ledger.recurring.sorted { $0.nextDue < $1.nextDue }) { bill in
             Button { edit = bill } label: {
                 PaperCard {
-                    HStack { CategoryIcon(symbol: "repeat"); VStack(alignment: .leading, spacing: 4) { Text(bill.name).font(.headline); Text("\(bill.cycle.rawValue) · \(bill.nextDue.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(Ink.muted) }; Spacer(); Text(Money.format(bill.amount)).font(.headline) }
-                    Label(bill.remind ? "Reminder requested · one day before" : "Reminders off", systemImage: bill.remind ? "bell" : "bell.slash").font(.caption).foregroundStyle(Ink.muted)
+                    HStack { CategoryIcon(symbol: "repeat"); VStack(alignment: .leading, spacing: 4) { Text(bill.name).font(.headline); Text("\(bill.cycle.rawValue) · \(bill.nextDue.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(Ink.muted) }; Spacer(); Text(bill.renewalAmountUnknown == true ? "Price unknown" : Money.format(bill.amount)).font(.headline) }
+                    Text(bill.cancelledAt != nil ? "Cancelled · history retained" : bill.trialEndsAt != nil ? "Trial · renewal estimate" : (bill.source ?? "Manually tracked")).font(.caption).foregroundStyle(Ink.muted)
+                    if let mailbox = bill.sourceMailbox { Text(mailbox).font(.caption).foregroundStyle(Ink.muted) }
+                    if let charge = store.ledger.possibleChargeAfterCancellation(bill) {
+                        Label("Possible charge after cancellation: " + Money.format(charge.amountCents) + " on " + charge.date + ". Review in bank purchases.", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Ink.warning)
+                    }
+                    if bill.cancelledAt == nil {
+                        Label(bill.remind ? (bill.trialEndsAt != nil ? "Reminder requested · three days before" : "Reminder requested · one day before") : "Reminders off", systemImage: bill.remind ? "bell" : "bell.slash").font(.caption).foregroundStyle(Ink.muted)
+                    }
                 }
             }.buttonStyle(.plain)
         }
-        Text("A recurring entry reserves cash for planning. It becomes an expense only when you choose Mark Paid. Reminders cover the next due date and refresh when you edit or mark a payment paid.").font(.footnote).foregroundStyle(Ink.muted)
+        Text("Active entries reserve estimated cash for planning. Cancelled entries and unknown trial prices are excluded. Bank estimates cannot confirm whether you cancelled with the provider. It becomes an expense only when you choose Mark Paid. Reminders cover the next due date and refresh when you edit or mark a payment paid.").font(.footnote).foregroundStyle(Ink.muted)
             .sheet(item: $edit) { bill in NavigationStack { RecurringForm(existing: bill) } }
             .sheet(item: $suggestion) { candidate in NavigationStack { RecurringForm(suggestion: candidate) } }
     }
@@ -60,39 +79,50 @@ struct RecurringForm: View {
     @State private var remind = false
     @State private var account: UUID?
     @State private var delete = false
+    @State private var cancelled = false
     @State private var initialized = false
     @State private var saving = false
-    private var valid: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && (Money.cents(amount) ?? 0) > 0 && !saving }
+    private var valid: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && ((Money.cents(amount) ?? 0) > 0 || (existing?.renewalAmountUnknown == true && amount.isEmpty)) && !saving }
     var body: some View {
         Form {
             Section("Payment") { TenderField("Name", text: $name); TenderField("Amount (USD)", text: $amount).keyboardType(.decimalPad); Picker("Category", selection: $category) { Text("Uncategorized").tag(UUID?.none); ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }; Picker("Repeats", selection: $cycle) { ForEach(BillingCycle.allCases, id: \.self) { Text($0.rawValue).tag($0) } }; DatePicker("Next due", selection: $due, displayedComponents: .date) }
-            Section { Toggle("Remind me one day before at 9 AM", isOn: $remind) } footer: { Text("Tender asks for notification access when you save a reminder. Due dates within one day may be too close for a reminder.") }
+            Section { Toggle(existing?.trialEndsAt != nil ? "Remind me three days before at 9 AM" : "Remind me one day before at 9 AM", isOn: $remind).disabled(cancelled) } footer: { Text("Tender asks for notification access when you save a reminder. Due dates within one day may be too close for a reminder.") }
             if existing != nil {
+                Section {
+                    Toggle("Cancelled with provider", isOn: $cancelled)
+                    Text("This stops Tender reminders and forecasts after saving. It does not cancel the service. Turn off to resume tracking.").font(.caption)
+                }
                 Section("Record payment") {
                     Picker("Paid from", selection: $account) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.activeAccounts) { Text($0.name).tag(Optional($0.id)) } }
-                    Button("Mark Paid & Advance Due Date") { Task { await save(paid: true) } }.disabled(!valid || account == nil)
+                    Button("Mark Paid & Advance Due Date") { Task { await save(paid: true) } }.disabled(!valid || account == nil || cancelled || (Money.cents(amount) ?? 0) <= 0)
                     Text("If this payment is already in Activity, do not record it again. Move Next due forward and Save instead. Bank-linked payments do not deduct the saved balance again.").font(.caption)
                 }
                 Section { Button("Delete Recurring Payment", role: .destructive) { delete = true } }
             }
         }.paperForm().navigationTitle(existing == nil ? "New Recurring Payment" : "Recurring Payment").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save") { Task { await save(paid: false) } }.disabled(!valid) } }
-            .onAppear { guard !initialized else { return }; initialized = true; account = store.ledger.activeAccounts.first?.id; category = store.ledger.categories.last?.id; if let candidate = suggestion { name = candidate.merchant; amount = Money.input(candidate.amount); due = candidate.nextDue; cycle = candidate.cycle }; if let e = existing { name = e.name; amount = Money.input(e.amount); category = e.categoryID; due = e.nextDue; cycle = e.cycle; remind = e.remind } }
+            .onAppear { guard !initialized else { return }; initialized = true; account = store.ledger.activeAccounts.first?.id; category = store.ledger.categories.last?.id; if let candidate = suggestion { name = candidate.merchant; amount = Money.input(candidate.amount); due = candidate.nextDue; cycle = candidate.cycle }; if let e = existing { name = e.name; amount = e.renewalAmountUnknown == true ? "" : Money.input(e.amount); category = e.categoryID; due = e.nextDue; cycle = e.cycle; remind = e.remind; cancelled = e.cancelledAt != nil } }
             .confirmationDialog("Delete this recurring payment?", isPresented: $delete, titleVisibility: .visible) { Button("Delete", role: .destructive) { if store.update({ $0.recurring.removeAll { $0.id == existing?.id } }) { Task { await store.refreshReminders() }; dismiss() } } }
     }
     private func save(paid: Bool) async {
-        guard valid, let cents = Money.cents(amount) else { return }
+        guard valid else { return }
+        let cents = Money.cents(amount) ?? 0
         saving = true; defer { saving = false }
         let fallbackID = store.ledger.categories.first(where: { $0.name == "Uncategorized" })?.id ?? UUID()
         let category = category ?? fallbackID
-        var bill = RecurringBill(name: name, amount: cents, categoryID: category, nextDue: due, cycle: cycle, remind: remind)
+        var bill = existing ?? RecurringBill(name: name, amount: cents, categoryID: category, nextDue: due, cycle: cycle, remind: remind)
+        bill.name = name; bill.amount = cents; bill.categoryID = category; bill.nextDue = due; bill.cycle = cycle
+        bill.remind = remind && !cancelled; bill.renewalAmountUnknown = cents == 0
+        bill.cancelledAt = cancelled ? (existing?.cancelledAt ?? Date()) : nil
+        if let suggestion { bill.source = "Estimated from purchase history"; bill.bankSuggestionID = suggestion.id }
+        if bill.trialEndsAt != nil { bill.trialEndsAt = due }
         if let existing {
             bill.id = existing.id
             let sameSchedule = existing.cycle == cycle && Calendar.current.isDate(existing.nextDue, inSameDayAs: due)
             bill.recurrenceAnchor = sameSchedule ? (existing.recurrenceAnchor ?? existing.nextDue) : due
         } else { bill.recurrenceAnchor = due }
-        if remind { guard await store.enableReminders() else { return } }
-        if paid { bill.nextDue = bill.advanced() }
+        if bill.remind { guard await store.enableReminders() else { return } }
+        if paid { bill.nextDue = bill.advanced(); bill.trialEndsAt = nil }
         let result = store.update { ledger in
             if !ledger.categories.contains(where: { $0.id == category }) {
                 ledger.categories.append(BudgetCategory(id: category, name: "Uncategorized", symbol: "tag", limit: 0))

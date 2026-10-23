@@ -30,8 +30,15 @@ struct RootView: View {
         .alert("Couldn’t complete this action", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) { Button("Dismiss", role: .cancel) {} } message: { Text(store.error ?? "") }
         .onOpenURL { url in if url.scheme == "tender" && url.host == "shopping" { sheet = .shopping } }
         .onReceive(NotificationCenter.default.publisher(for: .openShopping)) { _ in openShoppingIfNeeded() }
-        .onChange(of: phase) { _, phase in if phase == .active { openShoppingIfNeeded(); Task { await store.refreshReminders(); await store.refreshBank() } } }
+        .onChange(of: phase) { _, phase in if phase == .active { openShoppingIfNeeded(); Task { await store.gmail.refresh(store: store) }; Task { await store.refreshReminders(); await store.refreshBank() } } }
         .onAppear { openShoppingIfNeeded() }
+        .task {
+            await store.gmail.refresh(store: store)
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(900)) } catch { break }
+                if phase == .active { await store.gmail.refresh(store: store) }
+            }
+        }
         .task {
             await store.refreshReminders()
             await store.refreshBank()

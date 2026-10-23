@@ -25,3 +25,26 @@ These are saved follow-ups, not blockers. No further answers requested now.
 - Activity → Recurring → Refresh bank history. If no suggestions, check the history/status message.
 
 No UI, microphone, notification, live bank or physical-device tests were run in this revision, per your request. Simulator-target build only passed.
+
+## v4.3 decisions to revisit — optional subscription mail
+
+No answers were requested while you were away. Implemented defaults:
+
+- Optional Gmail alongside bank estimates; connect multiple addresses independently (up to 20).
+- Review before accepting cancellations/trials/renewals; explicit date confirmation; manually choose matching subscription across addresses.
+- Email parsing on phone, credentials in device-only Keychain; no email upload to Cloudflare or AI service.
+- Foreground checks only: existing bank 5-minute cooldown; Gmail 15 minutes. No promise of background monitoring.
+- Last-year/500-message scan per mailbox; English/USD inference, ambiguous fields manually corrected.
+- Trial reminder 3 days before, recurring 1 day before, 9 AM; opt-in.
+- Cancelled entries excluded from costs/reminders while purchase history remains. Later merchant-matched charges are flagged for review.
+- Loading view has no artificial timer and does not wait for network.
+
+Remaining choices/setup for your return:
+
+1. Configure Google iOS OAuth client and add your test email addresses. Steps in gmail-subscriptions.md; no secrets in chat.
+2. Before wider release, complete Google restricted-scope/privacy requirements. Decide whether to retain on-device-only processing.
+3. Decide whether additional email providers, notifications while Tender is closed, incremental inbox history, or higher scan limits are needed.
+4. Verify deployed bank transaction support; if missing, separately inspect the existing Worker/transaction configuration. No new paid Plaid product was enabled.
+5. Test recognition against your actual subscription emails; generic English heuristics can miss messages and confuse promotional copy with account notices. Sender names are not proof.
+
+Manual paste/review and the loading page can be tried before Google setup. Compilation passed only; functional testing remains yours.

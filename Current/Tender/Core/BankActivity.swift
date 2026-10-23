@@ -97,7 +97,7 @@ extension Ledger {
         let groups = Dictionary(grouping: transactions) { $0.accountKey + ":" + normalizedMerchant($0.merchant) }
         return groups.compactMap { (key, values) -> SubscriptionSuggestion? in
             let ordered = values.sorted { $0.date < $1.date }
-            guard ordered.count >= 2, let last = ordered.last, let lastDate = last.purchaseDate,
+            guard !(ignoredSubscriptionIDs ?? []).contains(key), ordered.count >= 2, let last = ordered.last, let lastDate = last.purchaseDate,
                   !normalizedMerchant(last.merchant).isEmpty,
                   !recurring.contains(where: { normalizedMerchant($0.name) == normalizedMerchant(last.merchant) }) else { return nil }
             let recent = Array(ordered.suffix(4))
@@ -124,4 +124,17 @@ extension Ledger {
 
 private func normalizedMerchant(_ name: String) -> String {
     name.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
+}
+
+// A matching merchant is evidence to review, not proof of a subscription or cancellation failure.
+extension Ledger {
+    public func possibleChargeAfterCancellation(_ bill: RecurringBill) -> BankTransaction? {
+        guard let cancelled = bill.cancelledAt else { return nil }
+        let merchant = normalizedMerchant(bill.name)
+        guard !merchant.isEmpty else { return nil }
+        return (bankActivity ?? []).flatMap(\.transactions).filter {
+            $0.canRecord && normalizedMerchant($0.merchant) == merchant &&
+            ($0.purchaseDate ?? .distantPast) > Calendar.current.startOfDay(for: cancelled)
+        }.sorted { $0.date > $1.date }.first
+    }
 }

@@ -6,6 +6,7 @@ import OSLog
 
 @MainActor @Observable
 final class LedgerStore {
+    let gmail = GmailSubscriptions()
     var ledger: Ledger
     var error: String?
     private(set) var hasLoaded = false
@@ -91,7 +92,7 @@ final class LedgerStore {
         } catch { self.error = "Couldn’t preserve a recovery copy. Your existing ledger is unchanged."; return false }
     }
     func restore(_ data: Data) {
-        guard !bankUpdating, !bankMaintenance else { error = "Wait for the bank operation to finish before restoring."; return }
+        guard !bankUpdating, !bankMaintenance, !gmail.busy else { error = "Wait for bank and email updates to finish before restoring."; return }
         var stagedFiles: [URL] = []
         do {
             guard data.count < LedgerArchive.maximumEncodedBytes else { throw LedgerError.invalidBackup }
@@ -113,6 +114,7 @@ final class LedgerStore {
                 guard data.count < 30_000_000 else { throw LedgerError.invalidBackup }
                 next = try JSONDecoder.tender.decode(Ledger.self, from: data).validated()
             }
+            next.subscriptionMailboxes = [] // Backups never restore Google access.
             next.freshStartVersion = 1
             for i in next.accounts.indices where next.accounts[i].bankAccountKey != nil { next.accounts[i].needsReconnection = true }
             let file = root.appending(path: "ledger.json")
@@ -162,10 +164,10 @@ final class LedgerStore {
         let old = await center.pendingNotificationRequests()
         center.removePendingNotificationRequests(withIdentifiers: old.map(\.identifier))
         var reminders: [(String, Date, String, String)] = []
-        for bill in ledger.recurring where bill.remind {
-            let day = Calendar.current.date(byAdding: .day, value: -1, to: bill.nextDue)!
+        for bill in ledger.activeRecurring where bill.remind {
+            let day = Calendar.current.date(byAdding: .day, value: bill.trialEndsAt == nil ? -1 : -3, to: bill.trialEndsAt ?? bill.nextDue)!
             let fire = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: day)!
-            reminders.append((bill.id.uuidString, fire, "Upcoming payment", "\(bill.name) · \(Money.format(bill.amount))"))
+            reminders.append((bill.id.uuidString, fire, bill.trialEndsAt == nil ? "Estimated renewal" : "Trial ending soon", bill.name + " · " + (bill.renewalAmountUnknown == true ? "Check renewal price" : Money.format(bill.amount))))
         }
         for item in ledger.groceries where item.remind == true && item.purchasedAt == nil {
             if let date = item.plannedAt {
@@ -214,7 +216,8 @@ final class LedgerStore {
         lastBankAttempt = nil
     }
     func eraseLocalData(bankOnly: Bool) throws {
-        guard !bankUpdating else { throw BankError.message("Wait for the bank update to finish before deleting data.") }
+        guard !bankUpdating, !gmail.busy else { throw BankError.message("Wait for bank/email updates to finish before deleting data.") }
+        if !bankOnly { try GmailSubscriptions.clearCredentials() }
         var next = bankOnly ? ledger : Ledger.empty()
         if bankOnly {
             let bankIDs = Set(next.accounts.filter { $0.bankAccountKey != nil }.map(\.id))

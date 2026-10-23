@@ -10,6 +10,7 @@ struct SettingsView: View {
             }
             Section("Your money") {
                 NavigationLink { AccountForm() } label: { Label("Accounts & Cash Wallet", systemImage: "wallet.bifold") }
+                NavigationLink { EmailSubscriptionsView() } label: { Label("Subscription Emails", systemImage: "envelope") }
                 NavigationLink { BankConnectionView() } label: { Label("Bank Connections", systemImage: "building.columns") }
             }
             Section("Preferences") {
@@ -119,7 +120,7 @@ struct PrivacySettingsView: View {
                 if remoteAccessUnknown { Text("No connection credentials are saved. Deletion can remove device data, but cannot verify or revoke old remote bank access.").font(.footnote).foregroundStyle(Ink.warning) }
                 if busy { ProgressView("Revoking bank access and deleting data…") }
                 if let message { Text(message).font(.footnote) }
-            } footer: { Text("Bank wipe revokes saved bank connections and removes linked accounts, their expense records, imported activity and local recovery copies. Delete All also removes manual records and photos. There is no online sign-in account in this personal edition. Independently exported backups remain yours to delete in Files.") }
+            } footer: { Text("Bank wipe revokes saved bank connections and removes linked accounts, their expense records, imported activity and local recovery copies. Delete All also removes manual records, photos, email suggestions and Gmail credentials on this device. Revoke Google access in your Google Account to remove the grant entirely. There is no online sign-in account in this personal edition. Independently exported backups remain yours to delete in Files.") }
         }.paperForm().navigationTitle("Privacy & Delete Data")
             .confirmationDialog(remoteAccessUnknown ? "Delete device data? Old remote bank access cannot be revoked without connection settings." : bankOnly ? "Wipe bank data and revoke access?" : "Delete all Tender data and revoke bank access?", isPresented: $confirm, titleVisibility: .visible) {
                 Button("Save Backup, Then Delete", role: .destructive) {

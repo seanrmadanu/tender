@@ -1,6 +1,6 @@
-v4.2 — Budget, groceries, recurring and wallet updates
+v4.3 — Optional Gmail subscriptions and loading page
 Updated October 22, 2026
 Active project: Current/Tender.xcodeproj
-Compilation passed; user owns runtime testing.
-Saved decisions: Current/docs/review-when-back.md
-Earlier versions preserved in Git and version history.
+Final simulator-target compilation passed; user owns runtime testing.
+Gmail OAuth setup required: docs/gmail-subscriptions.md
+Prior checkpoint: 3442209 (v4.2); earlier versions retained in Git.
