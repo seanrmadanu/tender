@@ -48,3 +48,7 @@ Remaining choices/setup for your return:
 5. Test recognition against your actual subscription emails; generic English heuristics can miss messages and confuse promotional copy with account notices. Sender names are not proof.
 
 Manual paste/review and the loading page can be tried before Google setup. Compilation passed only; functional testing remains yours.
+
+## Login-first development checkpoint
+
+User requested login first on install and a Settings reset. Implemented the login entry UI and confirmed reset route. Authentication remains blocked on provider configuration and backend ownership/session work, not just Google Client ID. Recommended Firebase with existing Google project; no service was configured or billing enabled. See account-login.md. Current cannot advance past welcome until real auth is added; prior usable personal version is 37f14da. No user data was erased.

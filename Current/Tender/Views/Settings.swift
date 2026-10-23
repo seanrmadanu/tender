@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
+    @State private var resetting = false
     @Environment(LedgerStore.self) private var store
     var body: some View {
         Form {
@@ -20,10 +21,12 @@ struct SettingsView: View {
             Section("Your data") {
                 NavigationLink { BackupSettingsView() } label: { Label("Backup & Restore", systemImage: "icloud") }
                 NavigationLink { PrivacySettingsView() } label: { Label("Privacy & Delete Data", systemImage: "lock.shield") }
+                Button(role: .destructive) { resetting = true } label: { Label("Reset App", systemImage: "arrow.counterclockwise") }
                 if store.ledger.isDemo { NavigationLink("Review Old Sample Data") { SampleCleanupView() } }
             }
             Section { Text("Apple/Google sign-in and separate online accounts are planned for the friends’ beta. This build uses your existing personal bank connection.").font(.footnote).foregroundStyle(.secondary) }
         }.paperForm().navigationTitle("Settings")
+            .sheet(isPresented: $resetting) { NavigationStack { PrivacySettingsView(resetApp: true).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { resetting = false } } } } }
     }
 }
 struct UpdateSettingsView: View {
@@ -100,6 +103,7 @@ struct BackupSettingsView: View {
     private func prepare(_ data: Data, name: String, type: UTType) { document = ExportDocument(data: data); filename = name; self.type = type; exporter = true }
 }
 struct PrivacySettingsView: View {
+    var resetApp = false
     @Environment(LedgerStore.self) private var store
     @State private var bankOnly = true
     @State private var confirm = false
@@ -115,13 +119,15 @@ struct PrivacySettingsView: View {
                 Text("No financial data is sent to an AI service. Your exported backups and Apple device backups follow your own storage settings.").font(.footnote)
             }
             Section {
-                Button("Wipe My Bank Information", role: .destructive) { bankOnly = true; confirm = true }.disabled(busy || store.bankUpdating)
-                Button("Delete All My Tender Data", role: .destructive) { bankOnly = false; confirm = true }.disabled(busy || store.bankUpdating)
+                if !resetApp { Button("Wipe My Bank Information", role: .destructive) { bankOnly = true; confirm = true }.disabled(busy || store.bankUpdating || store.gmail.busy) }
+                Button(resetApp ? "Reset App" : "Delete All My Tender Data", role: .destructive) { bankOnly = false; confirm = true }.disabled(busy || store.bankUpdating || store.gmail.busy)
+                if resetApp { Text("Clears this device’s ledger, receipts, Gmail credentials and preferences, revokes saved bank connections, and returns to the login page. Exported backups remain in Files. Sign-in still requires setup in this build.").font(.footnote) }
                 if remoteAccessUnknown { Text("No connection credentials are saved. Deletion can remove device data, but cannot verify or revoke old remote bank access.").font(.footnote).foregroundStyle(Ink.warning) }
                 if busy { ProgressView("Revoking bank access and deleting data…") }
                 if let message { Text(message).font(.footnote) }
             } footer: { Text("Bank wipe revokes saved bank connections and removes linked accounts, their expense records, imported activity and local recovery copies. Delete All also removes manual records, photos, email suggestions and Gmail credentials on this device. Revoke Google access in your Google Account to remove the grant entirely. There is no online sign-in account in this personal edition. Independently exported backups remain yours to delete in Files.") }
-        }.paperForm().navigationTitle("Privacy & Delete Data")
+        }.paperForm().navigationTitle(resetApp ? "Reset App" : "Privacy & Delete Data")
+            .onAppear { if resetApp { bankOnly = false } }
             .confirmationDialog(remoteAccessUnknown ? "Delete device data? Old remote bank access cannot be revoked without connection settings." : bankOnly ? "Wipe bank data and revoke access?" : "Delete all Tender data and revoke bank access?", isPresented: $confirm, titleVisibility: .visible) {
                 Button("Save Backup, Then Delete", role: .destructive) {
                     do { document = ExportDocument(data: try store.completeBackup()); exporter = true }
@@ -136,12 +142,17 @@ struct PrivacySettingsView: View {
             }
     }
     private func erase() async {
-        guard !busy, !store.bankUpdating else { return }
+        guard !busy, !store.bankUpdating, !store.gmail.busy else { return }
         busy = true; store.bankMaintenance = true; defer { busy = false; store.bankMaintenance = false }
         do {
             let unknown = remoteAccessUnknown
             if let config = BankConfiguration.load() { try await BankClient(configuration: config).disconnect() }
             try store.eraseLocalData(bankOnly: bankOnly)
+            if resetApp {
+                if let domain = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: domain) }
+                UserDefaults.standard.set(true, forKey: "bankAccessPaused")
+                NotificationCenter.default.post(name: .resetToLogin, object: nil)
+            }
             message = unknown ? "Device data removed. Old remote bank access could not be verified or revoked; manage it with the bank/provider." : bankOnly ? "Bank information removed and saved connections revoked." : "Tender data deleted. Restore a saved backup if you return, then reconnect your bank."
         } catch { message = "Deletion could not finish: " + error.localizedDescription + " Retry before assuming all data was removed." }
     }

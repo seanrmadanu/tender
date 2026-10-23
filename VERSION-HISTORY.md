@@ -1,3 +1,13 @@
+## v4.4 development checkpoint — Login entry and Settings reset (October 23, 2026)
+
+Normal launch shows the engraved login page with email/Google/Apple/phone options. This is a SETUP-REQUIRED UI foundation, not working authentication: provider actions display unavailable status, no credentials are collected, and there is no path into Home yet. Legacy ledger loading and automatic network refresh do not start. Existing files/credentials are preserved until explicit reset. Prior working personal app: 37f14da.
+
+Settings → Reset App reuses confirmed backup/deletion and remote bank revoke logic, clears preferences and returns to login on success. Busy email/bank operations block deletion. It does not delete external backups or Google grants. Settings is currently gated by the unfinished auth integration.
+
+Build-only verification passed: Current/build/oct23-login-reset-final-build.log. No functional/device/reset/auth tests or installs. Full account-service configuration, session handling and per-user bank/local data isolation remain required. Recommended Firebase setup and implementation checklist: Current/docs/account-login.md. No paid services enabled, no data erased and no deployment. Merged untouched.
+
+---
+
 ## v4.3.1 — Google iOS client configuration (October 23, 2026)
 
 Configured the user-provided public Google iOS client ID and matching reversed URL scheme in Current/Tender/Info.plist. The existing tender shopping shortcut scheme is retained. The Gmail configured check can now enable Connect Gmail after rebuild/install. No tokens, client secrets, Google Cloud changes or live account requests were made.

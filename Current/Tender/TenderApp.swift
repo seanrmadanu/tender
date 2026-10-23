@@ -4,17 +4,17 @@ import AppIntents
 @main
 struct TenderApp: App {
     @State private var store = LedgerStore()
+    @State private var showLogin = true
     var body: some Scene {
         WindowGroup {
+            // Fresh installs and upgrades both start at account entry. The old
+            // personal ledger is not loaded or migrated into an arbitrary login.
             Group {
-                if store.hasLoaded {
-                    RootView()
-                } else {
-                    LedgerLoadingView()
-                }
-            }
-            .environment(store).tint(Ink.green)
-            .task { await store.loadIfNeeded() }
+                if showLogin { WelcomeLoginView() }
+                else if store.hasLoaded { RootView().environment(store) }
+                else { LedgerLoadingView().task { await store.loadIfNeeded() } }
+            }.tint(Ink.green)
+                .onReceive(NotificationCenter.default.publisher(for: .resetToLogin)) { _ in showLogin = true }
         }
     }
 }
@@ -34,3 +34,5 @@ struct TenderShortcuts: AppShortcutsProvider {
     }
 }
 extension Notification.Name { static let openShopping = Notification.Name("openShopping") }
+
+extension Notification.Name { static let resetToLogin = Notification.Name("resetToLogin") }

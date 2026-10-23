@@ -1,7 +1,6 @@
-v4.3.1 — Google iOS client configuration
+v4.4-dev — Login entry and Settings reset foundation
 Updated October 23, 2026
 Active project: Current/Tender.xcodeproj
-Simulator-target compilation passed; user owns runtime testing.
-Public Google client ID and callback configured; live OAuth unverified.
-Tender account login remains pending; Gmail is a separate authorization.
-Prior checkpoint: b60f415.
+Build passed. Authentication is NOT implemented; login currently blocks Home.
+Setup/remaining work: docs/account-login.md
+Prior working personal version: 37f14da.
