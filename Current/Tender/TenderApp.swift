@@ -14,7 +14,7 @@ struct TenderApp: App {
                 else if store.hasLoaded { RootView().environment(store) }
                 else { LedgerLoadingView().task { await store.loadIfNeeded() } }
             }.tint(Ink.green)
-                .onReceive(NotificationCenter.default.publisher(for: .resetToLogin)) { _ in showLogin = true }
+                .onReceive(NotificationCenter.default.publisher(for: .resetToLogin)) { _ in showLogin = true; store = LedgerStore() }
         }
     }
 }

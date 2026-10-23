@@ -121,7 +121,7 @@ struct PrivacySettingsView: View {
             Section {
                 if !resetApp { Button("Wipe My Bank Information", role: .destructive) { bankOnly = true; confirm = true }.disabled(busy || store.bankUpdating || store.gmail.busy) }
                 Button(resetApp ? "Reset App" : "Delete All My Tender Data", role: .destructive) { bankOnly = false; confirm = true }.disabled(busy || store.bankUpdating || store.gmail.busy)
-                if resetApp { Text("Clears this device’s ledger, receipts, Gmail credentials and preferences, revokes saved bank connections, and returns to the login page. Exported backups remain in Files. Sign-in still requires setup in this build.").font(.footnote) }
+                if resetApp { Text("Forgets your saved Tender login, clears this device’s ledger, receipts, credentials, preferences and notifications, revokes saved bank connections, and returns to the login page. You will need to sign in again. Exported backups remain in Files. Sign-in still requires setup in this build.").font(.footnote) }
                 if remoteAccessUnknown { Text("No connection credentials are saved. Deletion can remove device data, but cannot verify or revoke old remote bank access.").font(.footnote).foregroundStyle(Ink.warning) }
                 if busy { ProgressView("Revoking bank access and deleting data…") }
                 if let message { Text(message).font(.footnote) }
@@ -149,8 +149,7 @@ struct PrivacySettingsView: View {
             if let config = BankConfiguration.load() { try await BankClient(configuration: config).disconnect() }
             try store.eraseLocalData(bankOnly: bankOnly)
             if resetApp {
-                if let domain = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: domain) }
-                UserDefaults.standard.set(true, forKey: "bankAccessPaused")
+                try await AppReset.forgetLoginAndPreferences()
                 NotificationCenter.default.post(name: .resetToLogin, object: nil)
             }
             message = unknown ? "Device data removed. Old remote bank access could not be verified or revoked; manage it with the bank/provider." : bankOnly ? "Bank information removed and saved connections revoked." : "Tender data deleted. Restore a saved backup if you return, then reconnect your bank."

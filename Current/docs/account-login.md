@@ -33,3 +33,7 @@ No automatic data wipe runs on upgrade or installation. Replacing an app with Xc
 ## Validation
 
 Simulator-target compilation passed in build/oct23-login-reset-final-build.log. No unit/UI/device/live-auth/reset tests were run, per user preference. Manual behavior testing remains with the user. Provider setup, backend user isolation and an authenticated route into Home remain incomplete.
+
+## Full reset follow-up
+
+AppReset now clears Tender auth-service Keychain entries, app preferences, app HTTP/WebKit caches and cookies, and pending/delivered notifications. Existing deletion clears Gmail/bank credentials and financial files; successful reset replaces the in-memory LedgerStore and returns to login. This does not sign out of Safari or device Google/Apple accounts. There is no live Tender login session yet. Integrating a provider SDK requires adding its signOut/cancel/credential cleanup to this coordinator; clearing a reserved Keychain namespace does not substitute for SDK session deletion. Build-only verification passed in build/oct23-full-reset-build.log.

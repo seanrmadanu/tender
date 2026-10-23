@@ -590,3 +590,6 @@ Settings → Reset App reuses confirmed backup/deletion and remote bank revoke l
 Build-only verification passed: Current/build/oct23-login-reset-final-build.log. No functional/device/reset/auth tests or installs. Full account-service configuration, session handling and per-user bank/local data isolation remain required. Recommended Firebase setup and implementation checklist: Current/docs/account-login.md. No paid services enabled, no data erased and no deployment. Merged untouched.
 
 ---
+
+[2026-10-23] Full app reset clarification
+User requires Reset App to forget login too. Added AppReset.forgetLoginAndPreferences: removes Tender auth-service Keychain entries, preferences, app HTTP cookies/cache, WKWebView data, pending and delivered notifications. Existing eraseLocalData removes Gmail/bank credentials and ledger files first. Success replaces in-memory LedgerStore and returns to login. OS Safari/Google/Apple device accounts and exported backups remain outside app reset. No live authentication SDK/session exists yet; any future SDK must call its signOut/revocation cleanup here before this flow is considered complete for that provider. Updated reset confirmation copy. Compile passed in Current/build/oct23-full-reset-build.log, whitespace check passed; no reset/device/runtime tests or installations. Previous checkpoint a983523.
