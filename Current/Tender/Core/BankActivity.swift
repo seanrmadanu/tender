@@ -24,6 +24,14 @@ public struct BankTransaction: Codable, Equatable, Identifiable, Sendable {
     }
     public var canRecord: Bool { !pending && !isTransfer && currency == "USD" && amountCents > 0 && purchaseDate != nil }
 }
+public struct BankTransactionDetails: Codable, Equatable, Sendable {
+    public var note: String = ""
+    public var attachments: [String] = []
+    public var assistantLastEdit: AssistantOrigin? = nil
+    public init(note: String = "", attachments: [String] = []) {
+        self.note = note; self.attachments = attachments
+    }
+}
 public struct BankActivityItem: Codable, Equatable, Sendable {
     public var id: String
     public var checkedAt: Date?
@@ -38,10 +46,39 @@ public struct SubscriptionSuggestion: Identifiable, Sendable {
     public var occurrences: Int
 }
 extension Ledger {
+    public func currentBankTransactionID(_ id: String) -> String {
+        (bankActivity ?? []).flatMap(\.transactions).first { $0.pendingID == id }?.id ?? id
+    }
+    public mutating func saveBankTransactionDetails(_ details: BankTransactionDetails, for id: String) throws {
+        let currentID = currentBankTransactionID(id)
+        guard (bankActivity ?? []).flatMap(\.transactions).contains(where: { $0.id == currentID }) else { throw LedgerError.invalidExpense }
+        if bankTransactionDetails == nil { bankTransactionDetails = [:] }
+        var preserved = details
+        if preserved.assistantLastEdit == nil { preserved.assistantLastEdit = bankTransactionDetails?[currentID]?.assistantLastEdit }
+        bankTransactionDetails?[currentID] = preserved
+        _ = try validated()
+    }
     public mutating func receiveBankActivity(_ items: [BankActivityItem]) throws {
+        let deletedCardIDs = Set((archivedCards ?? []).map(\.id))
+        let archivedKeys = Set(accounts.filter { deletedCardIDs.contains($0.id) }.compactMap(\.bankAccountKey))
+        let items = items.map { BankActivityItem(id: $0.id, checkedAt: $0.checkedAt, transactions: $0.transactions.filter { !archivedKeys.contains($0.accountKey) }) }
         let incoming = items.flatMap(\.transactions)
         guard incoming.count <= 100_000, Set(incoming.map(\.id)).count == incoming.count,
               incoming.allSatisfy({ $0.amountCents.magnitude <= 99_999_999_999 && $0.purchaseDate != nil }) else { throw LedgerError.invalidBackup }
+        // Personal annotations live outside provider data and survive refreshes.
+        // Plaid explicitly links a posted transaction to its pending predecessor.
+        for transaction in incoming {
+            if let pendingID = transaction.pendingID, pendingID != transaction.id,
+               let previous = bankTransactionDetails?[pendingID] {
+                var merged = bankTransactionDetails?[transaction.id] ?? BankTransactionDetails()
+                if merged.note.isEmpty { merged.note = previous.note }
+                else if !previous.note.isEmpty && merged.note != previous.note { merged.note += "\n" + previous.note }
+                merged.attachments = Array(Set(merged.attachments + previous.attachments)).sorted()
+                if merged.assistantLastEdit == nil { merged.assistantLastEdit = previous.assistantLastEdit }
+                bankTransactionDetails?[transaction.id] = merged
+                bankTransactionDetails?.removeValue(forKey: pendingID)
+            }
+        }
         let refreshedPrefixes = items.map { "production:" + $0.id + ":" }
         let byID = Dictionary(uniqueKeysWithValues: incoming.map { ($0.id, $0) })
         // Only entries explicitly created from bank imports follow bank corrections.
@@ -69,6 +106,7 @@ extension Ledger {
             guard let i = expenses.firstIndex(where: { $0.id == expenseID }), expenses[i].bankTransactionID == nil,
                   expenses[i].accountID == account.id, expenses[i].amount == transaction.amountCents else { throw LedgerError.invalidExpense }
             expenses[i].bankTransactionID = transaction.id
+            expenses[i].categoryID = categoryID
         } else {
             try record(Expense(merchant: transaction.merchant, amount: transaction.amountCents, categoryID: categoryID,
                 accountID: account.id, date: transaction.purchaseDate!, bankTransactionID: transaction.id, importedFromBank: true), deductFromBalance: false)

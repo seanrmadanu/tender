@@ -13,13 +13,19 @@
     "PLAID_COUNTRY_CODES": "US",
     "TENDER_LINK_MODE": "browser",
     "TENDER_PUBLIC_URL": "https://tender-bank-bridge.tender-bank-bridge.workers.dev",
-    "TENDER_USER_ID": "tender-personal"
+    "TENDER_USER_ID": "tender-personal",
+    "FIREBASE_PROJECT_ID": "tender-84bd7",
+    "FIREBASE_API_KEY": "AIzaSyDurRm7JXsN-jduDKNGdClenrjlc0pugfo"
   },
   "durable_objects": {
     "bindings": [
       {
         "name": "BANK_VAULT",
         "class_name": "BankVault"
+      },
+      {
+        "name": "ACCOUNT_BANK_VAULT",
+        "class_name": "AccountBankVault"
       }
     ]
   },
@@ -28,6 +34,12 @@
       "tag": "v1",
       "new_sqlite_classes": [
         "BankVault"
+      ]
+    },
+    {
+      "tag": "v2-account-vaults",
+      "new_sqlite_classes": [
+        "AccountBankVault"
       ]
     }
   ],

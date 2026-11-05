@@ -79,15 +79,27 @@ struct EmailAccountView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var email = ""
     @State private var password = ""
+    @State private var name = ""
     @State private var create = false
+    private var passwordContentType: UITextContentType {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        // The simulator's automatic strong-password cover intercepts synthetic
+        // typing. Only the offline signup fixture uses ordinary secure entry.
+        if arguments.contains("--ui-testing") && arguments.contains("--signup-ui-test") { return .password }
+        #endif
+        return create ? .newPassword : .password
+    }
     var body: some View {
         Form {
             Picker("Account", selection: $create) { Text("Sign In").tag(false); Text("Create Account").tag(true) }.pickerStyle(.segmented)
+            if create { TextField("Full name", text: $name).textContentType(.name).textInputAutocapitalization(.words).accessibilityIdentifier("signup-full-name") }
             TextField("Email", text: $email).textContentType(.emailAddress).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
-            SecureField("Password", text: $password).textContentType(create ? .newPassword : .password)
+            SecureField("Password", text: $password).textContentType(passwordContentType)
             if create { Text("Use at least 6 characters, or the stronger password required by this app’s account policy.").font(.caption) }
-            Button(create ? "Create Account" : "Sign In") { Task { await auth.emailLogin(email, password: password, create: create) } }
-                .disabled(!email.contains("@") || password.isEmpty || (create && password.count < 6) || auth.busy)
+            Button(create ? "Create Account" : "Sign In") { Task { await auth.emailLogin(email, password: password, create: create, name: name) } }
+                .disabled(!email.contains("@") || password.isEmpty || (create && (password.count < 6 || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.count > 80)) || auth.busy)
+                .accessibilityIdentifier("email-auth-submit")
             Button("Forgot Password?") { Task { await auth.resetPassword(email) } }.disabled(!email.contains("@") || auth.busy)
             if auth.busy { ProgressView("Connecting…") }
             if let message = auth.message { Text(message).font(.footnote).foregroundStyle(Ink.warning) }

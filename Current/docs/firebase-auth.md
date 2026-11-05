@@ -4,7 +4,7 @@
 
 The supplied GoogleService-Info.plist is bundled for project tender-84bd7 and bundle com.sean.tender. Firebase's documented HTTPS REST API provides email/password registration, sign-in and password reset. Passwords are transient form state; only Firebase session/refresh tokens and minimal account identity are stored in device-only Keychain under com.sean.tender.auth. No Firebase SDK is installed.
 
-Launch restores a saved session by exchanging its refresh token and looking up the account with Firebase before opening a ledger. Failed restoration leaves the ledger closed and preserves data. Sign Out removes the session, drops the mounted ledger view and clears notifications. Session validation happens at entry; future online bank requests must validate/refresh their own authorization rather than treating a locally displayed screen as server authorization. Email verification is not currently enforced; never authorize bank migration or ownership based on email text.
+Launch reads the previously verified identity from device-only Keychain and opens its saved local ledger without waiting for Firebase. An expired token does not prevent offline access to that local data. Before bank requests, expiring tokens are renewed and the returned UID/account status are verified; concurrent renewal callers share one request. The Worker independently verifies authorization for every bank request. A locally displayed screen never authorizes remote access. Failed Keychain restoration preserves the ledger and shows sign-in. Sign Out removes the session, drops the mounted ledger view and clears notifications. Email verification is not currently enforced; never authorize bank migration or ownership based on email text.
 
 Every user has a separate local path: Documents/TenderAccounts/SHA256(project + UID). Gmail credential account keys include that same scope. Existing Documents/Tender and old Gmail credentials are not imported into a new login. Explicit backup imports are still possible. Local data is not synced to Firebase/cloud and there is no cross-device ledger recovery unless the user exports a backup.
 
@@ -18,11 +18,17 @@ User screenshots show Email/Password enabled and the Google provider's updated-c
 
 Apple and phone remain marked as setup-dependent. Apple developer/provider configuration and phone app verification/delivery/billing must be completed before enabling them. No paid services or external account changes were made.
 
-## Bank integration boundary
+## Account bank integration — October 24, 2026
 
-Account-based bank access is disabled in this build. The existing Cloudflare Worker has one personal vault and token; it does not validate Firebase user identity or route vaults by verified UID. The account screen and automatic bank refresh cannot access that personal bridge. Manual accounts, cash, groceries and local ledger features are available after valid Firebase sign-in. Existing personal bank data remains in the old local ledger and remote vault.
+Signed-in requests now use Firebase ID tokens at `/v2/*`. The Worker verifies the RS256 signature using Google's published certificates, checks project/issuer/time/UID claims, and looks up the account with Firebase on every request to reject deleted, disabled or revoked sessions. The app refreshes expiring tokens before bank requests and rejects results after a user switch.
 
-Next backend work: validate Firebase ID-token signature/issuer/audience/expiry, bind every bank vault/operation to its verified UID, handle sessions/revocation, and make any migration of the personal vault deliberate. No Worker was deployed in this revision.
+`AccountBankVault` stores each verified project/UID in a separate Durable Object, keyed by the SHA256 scope used by the local ledger. Caller-supplied owner headers are replaced at the Worker boundary. Link sessions, repair, token exchange, balances, transactions and disconnect all stay within that vault. The original `/v1/*` personal vault remains separate; old personal links are never automatically imported or claimed by email.
+
+Accounts now offers Import Bank Account via Plaid and Add Info Manually. Plaid starts the existing secure hosted browser flow. Manual entry first explains the responsibility to maintain balances/purchases, with Continue, Add Account via Plaid and Go Back. Cash on hand can be saved on the initial Accounts page; updating it replaces the existing cash wallet balance instead of adding duplicate cash. Bank update preferences are also scoped per user.
+
+Deployed October 25, 2026 as Cloudflare version `78b37504-cc34-4845-8c6f-94cd6b7b12ce`; live health and unauthorized-request smoke checks passed. Real-user sign-in/bank linking remains unverified. Deployment includes the updated Worker and its new `ACCOUNT_BANK_VAULT` migration, plus the public Firebase project/API configuration in `backend/wrangler.jsonc`. Existing Plaid/encryption secrets stay unchanged. The local Node personal bridge still implements only `/v1`; account requests use the configured Cloudflare endpoint. A new iPhone app build is required. Live sign-in/Plaid success must be tested on that build; mocked tests and compilation do not establish it.
+
+References: [Firebase ID-token verification](https://firebase.google.com/docs/auth/admin/verify-id-tokens), [session revocation](https://firebase.google.com/docs/auth/admin/manage-sessions), and [account lookup](https://docs.cloud.google.com/identity-platform/docs/use-rest-api).
 
 ## Full Reset App
 

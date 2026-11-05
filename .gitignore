@@ -18,6 +18,8 @@ backend/data/
 backend/secrets*.json
 Current/backend/data/
 Current/backend/secrets*.json
+# Old generated Firebase test key and certificate
+/Current/backend/test-fixtures/
 
 # Generated source-only handoff artifact (documents and source stay trackable)
 /Tender-ChatGPT-Handoff.zip

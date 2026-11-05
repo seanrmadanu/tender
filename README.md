@@ -1,3 +1,7 @@
+## Accounts and signed-in Plaid — October 24, 2026
+
+The source now offers Plaid import, an explained manual-entry flow, and cash-on-hand entry on Accounts. Signed-in bank requests use verified Firebase identity and a separate vault per user. The live Worker was deployed on October 25, 2026. Rebuild/install the updated iPhone app, then test signed-in Plaid linking. See [verification and rollout status](Current/docs/account-bank-verification.md).
+
 ## Latest local status — October 21, 2026
 
 Work in **Current/Tender.xcodeproj**. V3 was imported with a recoverable pre-import
@@ -83,3 +87,8 @@ All new app work belongs in **Current**. Archives are independent historical pro
 Cloudflare private setup has completed. The user reports successful Plaid connection and visible balances; further account/workflow tests are in the checklist. The root Cloudflare setup launcher forwards to the helper in Current if setup needs to be rerun.
 
 Keep private configuration in `Current/backend/.env`; it remains Git-ignored. Run app/backend commands from `Current/`, or `Current/backend/` as appropriate.
+
+## Contributors
+
+- **Sean Raj Madanu** — project creator and maintainer
+- **OpenAI Codex** — AI-assisted development, testing, and documentation

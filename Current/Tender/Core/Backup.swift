@@ -29,10 +29,45 @@ public struct LedgerArchive: Codable, Sendable {
 
 extension Ledger {
     public var attachmentNames: Set<String> {
-        Set(expenses.compactMap(\.attachment) + groceries.flatMap { $0.observations.compactMap(\.photo) })
+        let cardFiles = (archivedCards ?? []).flatMap { card in
+            card.expenses.compactMap(\.attachment) + card.groceries.flatMap { $0.observations.compactMap(\.photo) } + card.details.values.flatMap(\.attachments)
+        }
+        let profileFiles = profilePhoto.map { [$0.originalImage, $0.croppedImage] } ?? []
+        return Set(expenses.compactMap(\.attachment) + (archivedItems?.expenses ?? []).compactMap { $0.expense.attachment } + (archivedItems?.groceries ?? []).flatMap { $0.observations.compactMap(\.photo) } + groceries.flatMap { $0.observations.compactMap(\.photo) } + (bankTransactionDetails ?? [:]).values.flatMap(\.attachments) + cardFiles + profileFiles)
     }
 
     public mutating func renameAttachments(_ mapping: [String: String]) {
+        if let photo = profilePhoto {
+            profilePhoto?.originalImage = mapping[photo.originalImage] ?? photo.originalImage
+            profilePhoto?.croppedImage = mapping[photo.croppedImage] ?? photo.croppedImage
+        }
+        if var cards = archivedCards {
+            for i in cards.indices {
+                for j in cards[i].expenses.indices { if let name = cards[i].expenses[j].attachment { cards[i].expenses[j].attachment = mapping[name] ?? name } }
+                for j in cards[i].groceries.indices { for k in cards[i].groceries[j].observations.indices {
+                    if let name = cards[i].groceries[j].observations[k].photo { cards[i].groceries[j].observations[k].photo = mapping[name] ?? name }
+                } }
+                for key in Array(cards[i].details.keys) {
+                    let files = (cards[i].details[key]?.attachments ?? []).map { mapping[$0] ?? $0 }
+                    cards[i].details[key]?.attachments = files
+                }
+            }
+            archivedCards = cards
+        }
+        for id in Array((bankTransactionDetails ?? [:]).keys) {
+            let renamed = (bankTransactionDetails?[id]?.attachments ?? []).map { mapping[$0] ?? $0 }
+            bankTransactionDetails?[id]?.attachments = renamed
+        }
+        if archivedItems != nil {
+            for i in archivedItems!.expenses.indices {
+                if let name = archivedItems!.expenses[i].expense.attachment, let renamed = mapping[name] { archivedItems!.expenses[i].expense.attachment = renamed }
+            }
+            for i in archivedItems!.groceries.indices {
+                for j in archivedItems!.groceries[i].observations.indices {
+                    if let name = archivedItems!.groceries[i].observations[j].photo, let renamed = mapping[name] { archivedItems!.groceries[i].observations[j].photo = renamed }
+                }
+            }
+        }
         for i in expenses.indices {
             if let name = expenses[i].attachment, let newName = mapping[name] { expenses[i].attachment = newName }
         }

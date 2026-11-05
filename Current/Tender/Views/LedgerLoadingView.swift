@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Local ledger startup only. Network refresh never holds this screen open.
+/// Visible while local data opens and the launch balance refresh completes.
 struct LedgerLoadingView: View {
     var body: some View {
         ZStack {
@@ -11,9 +11,8 @@ struct LedgerLoadingView: View {
                     .font(.system(size: 52, weight: .ultraLight)).accessibilityHidden(true)
                 Text("tender").font(.system(size: 48, weight: .medium, design: .serif))
                 Rectangle().fill(Ink.line).frame(width: 64, height: 1).accessibilityHidden(true)
-                Text("A little clarity for every day.")
-                    .font(.system(.body, design: .serif)).multilineTextAlignment(.center)
-                ProgressView("Opening your ledger…").font(.footnote).tint(Ink.green)
+                Text("Loading balances").font(.footnote)
+                    .accessibilityIdentifier("loading-balances")
             }
             .padding(32)
             .background(Ink.paper.opacity(0.96), in: RoundedRectangle(cornerRadius: 28))
@@ -22,5 +21,21 @@ struct LedgerLoadingView: View {
         }
         .foregroundStyle(Ink.green)
         .accessibilityIdentifier("ledger-loading")
+    }
+}
+
+struct BankDateSkeleton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+    var body: some View {
+        Text(Date().formatted(date: .abbreviated, time: .shortened)).font(.caption).hidden()
+            .overlay {
+                RoundedRectangle(cornerRadius: 4).fill(Ink.muted.opacity(pulsing ? 0.3 : 0.13))
+                    .frame(height: 13)
+            }
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) { pulsing = true }
+            }.accessibilityHidden(true)
     }
 }

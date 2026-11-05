@@ -11,7 +11,7 @@ test('Cloudflare runtime authenticates, persists encrypted links, and recovers b
   const key = randomBytes(32).toString('base64');
   const apiToken = 'local-test-only-'.repeat(4);
   const calls = [];
-  const modules = await Promise.all(['worker.mjs', 'bridge.mjs', 'config.mjs', 'transactions.mjs', 'vault-storage.mjs'].map(async name => ({ type: 'ESModule', path: path.resolve(import.meta.dirname, name), contents: await readFile(new URL(name, import.meta.url), 'utf8') })));
+  const modules = await Promise.all(['worker.mjs', 'bridge.mjs', 'config.mjs', 'transactions.mjs', 'vault-storage.mjs', 'firebase-auth.mjs'].map(async name => ({ type: 'ESModule', path: path.resolve(import.meta.dirname, name), contents: await readFile(new URL(name, import.meta.url), 'utf8') })));
   const options = convertV4MiniflareOptions({
     name: 'tender-test', modules, compatibilityDate: '2026-10-01', compatibilityFlags: ['nodejs_compat'],
     resourcePersistencePath: directory, cf: false, telemetry: { enabled: false }, log: new Log(LogLevel.ERROR),

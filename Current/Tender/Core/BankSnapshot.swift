@@ -9,6 +9,10 @@ struct BankSnapshot: Decodable, Identifiable, Sendable {
     var availableCents: Int64?
     var currentCents: Int64?
     var retrievedAt: Date
+    var itemID: String? = nil
+    var officialName: String? = nil
+    var accountType: String? = nil
+    var accountSubtype: String? = nil
 }
 
 extension BankSnapshot {
@@ -34,8 +38,17 @@ extension Ledger {
             accounts[index].isArchived = false
             accounts[index].snapshotAt = snapshot.retrievedAt
             accounts[index].source = "Plaid snapshot"
+            accounts[index].bankDetails = snapshot.details
         } else {
-            accounts.append(Account(name: snapshot.displayName, available: amount, source: "Plaid snapshot", snapshotAt: snapshot.retrievedAt, balanceRevision: UUID(), bankAccountKey: key))
+            accounts.append(Account(name: snapshot.displayName, available: amount, source: "Plaid snapshot", snapshotAt: snapshot.retrievedAt, balanceRevision: UUID(), bankAccountKey: key, bankDetails: snapshot.details))
         }
+    }
+}
+
+extension BankSnapshot {
+    var details: BankAccountDetails {
+        BankAccountDetails(itemID: itemID, institutionName: institutionName, bankName: name, mask: mask,
+            currentBalance: currentCents, currency: currency ?? "USD", officialName: officialName,
+            accountType: accountType, accountSubtype: accountSubtype)
     }
 }

@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tender-ai-connections",
+  "main": "assistant-worker.mjs",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "TENDER_AI_PUBLIC_URL": "https://tender-ai-connections.tender-bank-bridge.workers.dev",
+    "FIREBASE_PROJECT_ID": "tender-84bd7",
+    "FIREBASE_API_KEY": "AIzaSyDurRm7JXsN-jduDKNGdClenrjlc0pugfo",
+    "APPLE_BUNDLE_ID": "com.sean.tender"
+  },
+  "durable_objects": {
+    "bindings": [
+      {"name": "AI_LEDGER", "class_name": "AssistantLedgerVault"},
+      {"name": "AI_AUTH", "class_name": "AssistantAuthorization"}
+    ]
+  },
+  "kv_namespaces": [{"binding": "OAUTH_KV", "id": "4a11f977f9b34829b2d59416084de069"}],
+  "migrations": [{"tag": "v1-ai-connections", "new_sqlite_classes": ["AssistantLedgerVault", "AssistantAuthorization"]}],
+  "observability": {"enabled": false},
+  "account_id": "037b277ea7a8baf6f1333d564201556e"
+}

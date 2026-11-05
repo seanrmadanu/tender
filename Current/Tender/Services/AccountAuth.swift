@@ -10,10 +10,24 @@ private struct SavedAccountSession: Codable {
     var token: String
     var refresh: String
     var expires: Date
+    var profile: AccountProfileMetadata? = nil
 }
 private enum AccountSessionKeys {
-    static let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: "com.sean.tender.auth", kSecAttrAccount: "firebase"]
+    static var query: [CFString: Any] {
+        #if DEBUG
+        let service = ProcessInfo.processInfo.arguments.contains("--ui-testing") ? "com.sean.tender.auth.ui-tests" : "com.sean.tender.auth"
+        #else
+        let service = "com.sean.tender.auth"
+        #endif
+        return [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: "firebase"]
+    }
     static func read() throws -> SavedAccountSession? {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--ui-testing") && arguments.contains("--auth-startup-test") {
+            return SavedAccountSession(uid: "isolated-startup-fixture", email: "startup@example.invalid", token: "synthetic-not-a-real-token", refresh: "synthetic-not-a-real-refresh", expires: Date().addingTimeInterval(arguments.contains("--expired-auth-test") ? -3600 : 3600))
+        }
+        #endif
         var query = query; query[kSecReturnData] = true
         var result: CFTypeRef?
         let code = SecItemCopyMatching(query as CFDictionary, &result)
@@ -44,8 +58,20 @@ final class AccountAuth: NSObject, ASWebAuthenticationPresentationContextProvidi
     private(set) var email = ""
     private(set) var restoring = true
     private(set) var busy = false
+    private(set) var profileLoading = false
+    var profile: AccountProfileMetadata? {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--ui-testing") && arguments.contains("--profile-settings-test") {
+            return AccountProfileMetadata(displayName: "Test Member", memberSince: Date(timeIntervalSince1970: 1_609_502_400))
+        }
+        #endif
+        return session?.profile
+    }
     var message: String?
+    private var sessionRevision = UUID()
     private var session: SavedAccountSession?
+    @ObservationIgnored private var tokenRefreshTask: Task<Void, Error>?
     private var browser: ASWebAuthenticationSession?
     private var configuration: [String: Any] {
         guard let url = Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist"),
@@ -75,6 +101,24 @@ final class AccountAuth: NSObject, ASWebAuthenticationPresentationContextProvidi
         return try await send(request)
     }
     private func send(_ request: URLRequest) async throws -> [String: Any] {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing") && ProcessInfo.processInfo.arguments.contains("--signup-ui-test") {
+            // Completely local synthetic account; never contacts Firebase.
+            if request.url?.path.hasSuffix("accounts:signUp") == true,
+               let data = request.httpBody, let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let name = body["displayName"] as? String {
+                return ["localId": "synthetic-signup-profile", "email": "signup@example.invalid", "idToken": String(repeating: "x", count: 40), "refreshToken": "synthetic-refresh", "expiresIn": "3600", "displayName": name]
+            }
+            if request.url?.path.hasSuffix("accounts:lookup") == true {
+                return ["users": [["localId": "synthetic-signup-profile", "displayName": session?.profile?.displayName ?? "", "createdAt": "1609459200000"]]]
+            }
+            throw BankError.message("Sign-up UI test: networking disabled.")
+        }
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing") && ProcessInfo.processInfo.arguments.contains("--auth-startup-test") {
+            // A slow account service must never hold the locally saved ledger closed.
+            try await Task.sleep(for: .seconds(6))
+            throw BankError.offline
+        }
+        #endif
         let client = URLSession(configuration: .ephemeral, delegate: NoAuthRedirects(), delegateQueue: nil)
         defer { client.invalidateAndCancel() }
         let (data, response) = try await client.data(for: request)
@@ -94,12 +138,16 @@ final class AccountAuth: NSObject, ASWebAuthenticationPresentationContextProvidi
         }
         return result
     }
-    private func accept(_ result: [String: Any]) throws {
+    private func accept(_ result: [String: Any], profile: AccountProfileMetadata? = nil) throws {
         guard let uid = result["localId"] as? String, !uid.isEmpty, let token = result["idToken"] as? String,
               let refresh = result["refreshToken"] as? String else { throw BankError.message("The account response was incomplete.") }
+        let cached = session?.uid == uid ? session?.profile : nil
+        let returned = AccountProfileMetadata(firebaseUser: result)
+        let metadata = profile ?? AccountProfileMetadata(displayName: returned.displayName ?? cached?.displayName, memberSince: returned.memberSince ?? cached?.memberSince)
         let account = SavedAccountSession(uid: uid, email: result["email"] as? String ?? "", token: token, refresh: refresh,
-                                          expires: Date().addingTimeInterval(Double(result["expiresIn"] as? String ?? "3600") ?? 3600))
+                                          expires: Date().addingTimeInterval(Double(result["expiresIn"] as? String ?? "3600") ?? 3600), profile: metadata)
         try AccountSessionKeys.save(account)
+        sessionRevision = UUID()
         session = account; email = account.email; self.uid = uid
     }
     func restore() async {
@@ -107,10 +155,23 @@ final class AccountAuth: NSObject, ASWebAuthenticationPresentationContextProvidi
         busy = true; defer { busy = false; restoring = false }
         do {
             guard let saved = try AccountSessionKeys.read() else { return }
-            try await refresh(saved)
+            // This identity was verified at sign-in and stored in device-only Keychain.
+            // Opening its local ledger needs no network. Remote bank access still
+            // requires a current token and server-side UID verification.
+            session = saved; uid = saved.uid; email = saved.email
         } catch { message = "Could not restore sign-in. Check your connection and sign in again. Your saved ledger is preserved." }
     }
     private func refresh(_ saved: SavedAccountSession) async throws {
+        if let tokenRefreshTask { try await tokenRefreshTask.value; return }
+        let revision = sessionRevision
+        let task = Task { try await performRefresh(saved, revision: revision) }
+        tokenRefreshTask = task
+        defer { tokenRefreshTask = nil }
+        try await task.value
+    }
+    private func performRefresh(_ saved: SavedAccountSession, revision: UUID) async throws {
+        try Task.checkCancellation()
+        guard sessionRevision == revision, session?.uid == saved.uid else { throw BankError.message("Sign-in changed. Try again.") }
         guard let key = configuration["API_KEY"] as? String else { throw BankError.message("Firebase setup required.") }
         var request = URLRequest(url: URL(string: "https://securetoken.googleapis.com/v1/token?key=\(key)")!)
         request.httpMethod = "POST"; request.timeoutInterval = 25
@@ -123,11 +184,41 @@ final class AccountAuth: NSObject, ASWebAuthenticationPresentationContextProvidi
         let lookup = try await self.request("accounts:lookup", ["idToken": token])
         guard let user = (lookup["users"] as? [[String: Any]])?.first, user["localId"] as? String == uid,
               user["disabled"] as? Bool != true else { throw BankError.message("Sign in again to continue.") }
-        try accept(["localId": uid, "idToken": token, "refreshToken": refresh, "email": user["email"] as? String ?? saved.email, "expiresIn": result["expires_in"] as? String ?? "3600"])
+        try Task.checkCancellation()
+        guard sessionRevision == revision else { throw BankError.message("Sign-in changed. Try again.") }
+        try accept(["localId": uid, "idToken": token, "refreshToken": refresh, "email": user["email"] as? String ?? saved.email, "expiresIn": result["expires_in"] as? String ?? "3600"], profile: AccountProfileMetadata(firebaseUser: user))
     }
-    func emailLogin(_ email: String, password: String, create: Bool) async {
+    func loadProfileIfNeeded() async {
+        guard !profileLoading, profile?.memberSince == nil, let saved = session else { return }
+        profileLoading = true; defer { profileLoading = false }
+        let revision = sessionRevision
+        do {
+            if saved.expires.timeIntervalSinceNow < 90 { try await refresh(saved); return }
+            let result = try await request("accounts:lookup", ["idToken": saved.token])
+            guard sessionRevision == revision, session?.uid == saved.uid,
+                  let user = (result["users"] as? [[String: Any]])?.first, user["localId"] as? String == saved.uid,
+                  user["disabled"] as? Bool != true else { return }
+            var updated = saved; updated.profile = AccountProfileMetadata(firebaseUser: user)
+            try AccountSessionKeys.save(updated); session = updated
+        } catch { /* Keep cached profile data when the account service is unavailable. */ }
+    }
+    func bankConfiguration(expectedScope: String) async throws -> BankConfiguration {
+        guard storageKey == expectedScope, let saved = session else { throw BankError.message("Sign in again to connect your bank.") }
+        if saved.expires.timeIntervalSinceNow < 90 { try await refresh(saved) }
+        guard storageKey == expectedScope, let current = session else { throw BankError.message("Sign-in changed. Open Accounts again.") }
+        return BankConfiguration(server: BankConfiguration.accountServer, token: current.token)
+    }
+    func emailLogin(_ email: String, password: String, create: Bool, name: String = "") async {
         guard !busy else { return }; busy = true; message = nil; defer { busy = false }
-        do { try accept(try await request(create ? "accounts:signUp" : "accounts:signInWithPassword", ["email": email.trimmingCharacters(in: .whitespacesAndNewlines), "password": password, "returnSecureToken": true])) }
+        do {
+            let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if create && (cleaned.isEmpty || cleaned.count > 80 || cleaned.rangeOfCharacter(from: .controlCharacters) != nil) { throw BankError.message("Enter your name to create your profile.") }
+            var body: [String: Any] = ["email": email.trimmingCharacters(in: .whitespacesAndNewlines), "password": password, "returnSecureToken": true]
+            if create { body["displayName"] = cleaned }
+            let result = try await request(create ? "accounts:signUp" : "accounts:signInWithPassword", body)
+            let returned = AccountProfileMetadata(firebaseUser: result)
+            try accept(result, profile: create && returned.displayName == nil ? AccountProfileMetadata(displayName: cleaned, memberSince: returned.memberSince) : nil)
+        }
         catch { message = error.localizedDescription }
     }
     func resetPassword(_ email: String) async {
@@ -145,7 +236,7 @@ final class AccountAuth: NSObject, ASWebAuthenticationPresentationContextProvidi
             forgetSession()
         } catch { message = error.localizedDescription }
     }
-    func forgetSession() { browser?.cancel(); browser = nil; session = nil; uid = nil; email = ""; message = nil }
+    func forgetSession() { sessionRevision = UUID(); tokenRefreshTask?.cancel(); browser?.cancel(); browser = nil; session = nil; uid = nil; email = ""; message = nil }
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first(where: \.isKeyWindow) ?? ASPresentationAnchor()
     }

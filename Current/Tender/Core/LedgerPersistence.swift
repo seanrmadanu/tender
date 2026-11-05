@@ -11,7 +11,7 @@ enum LedgerPersistence {
         }
         guard FileManager.default.fileExists(atPath: file.path) else { return .empty() }
         var ledger = try JSONDecoder.tender.decode(Ledger.self, from: Data(contentsOf: file)).validated()
-        var migrated = false
+        var migrated = ledger.initializeMonthlyAllocationIfNeeded()
         if ledger.freshStartVersion == nil {
             ledger.freshStartVersion = 1
             migrated = true

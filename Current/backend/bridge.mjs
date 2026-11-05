@@ -8,6 +8,8 @@ export function cents(value) {
 export function normalizeAccounts(payload, fetchedAt) {
   return (payload.accounts ?? []).filter(a => a.type === 'depository').map(a => ({
     id: a.account_id, name: a.name, mask: a.mask ?? null,
+    officialName: a.official_name ?? null,
+    accountType: a.type ?? null, accountSubtype: a.subtype ?? null,
     currency: a.balances.iso_currency_code ?? null,
     availableCents: a.balances.iso_currency_code === 'USD' ? cents(a.balances.available) : null,
     currentCents: a.balances.iso_currency_code === 'USD' ? cents(a.balances.current) : null,
@@ -71,7 +73,7 @@ export async function createBridge(config, storage, request = fetch) {
       if (!config.team) return send(503, { error: 'Apple signing team not configured' });
       return send(200, { applinks: { details: [{ appIDs: [`${config.team}.${config.bundle}`], components: [{ '/': '/plaid/*' }] }] } });
     }
-    if (req.method === 'GET' && route === '/bank-complete') return new Response('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tender · Return to app</title><main style="max-width:34rem;margin:15vh auto;padding:24px;font:18px system-ui;color:#173d30;background:#faf8ee"><h1>Return to Tender</h1><p>Your browser session has ended. Open Tender and tap <strong>Check Connection</strong> to verify the result and review your balances.</p><p>You can close this tab.</p></main>', { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'", 'Referrer-Policy': 'no-referrer' } });
+    if (req.method === 'GET' && route === '/bank-complete') return new Response('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tender · Return to app</title><main style="max-width:34rem;margin:15vh auto;padding:24px;font:18px system-ui;color:#173d30;background:#faf8ee"><h1>Return to Tender</h1><p>Your browser session has ended. Open Tender to finish importing your accounts automatically.</p><p>You can close this tab.</p></main>', { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'", 'Referrer-Policy': 'no-referrer' } });
     if (!authorized(req, config.apiToken)) return send(401, { error: 'Authentication required' });
     if (busy) return send(409, { error: 'A bank request is already running. Try again shortly.' });
     busy = true;
@@ -94,26 +96,31 @@ export async function createBridge(config, storage, request = fetch) {
         return send(200, { linkToken: result.link_token, environment: config.env });
       }
       if (req.method === 'GET' && route === '/v1/hosted-link') {
-        const session = state.sessions.find(s => !s.done && s.retainUntil > Date.now());
-        return send(200, { session: session ? { id: session.id, url: session.url, expiresAt: new Date(session.expires).toISOString() } : null });
+        const session = state.sessions.find(s => !s.done && !s.closed && s.retainUntil > Date.now());
+        return send(200, { session: session ? { id: session.id, url: session.url, expiresAt: new Date(session.expires).toISOString(), presentation: session.presentation ?? 'browser' } : null });
       }
       if (req.method === 'POST' && route === '/v1/hosted-link') {
         const input = await body(req);
-        const pending = state.sessions.find(s => !s.done && s.expires > Date.now());
+        const presentation = input.presentation ?? 'browser';
+        if (!['browser', 'appReturn', 'inApp'].includes(presentation)) return send(400, { error: 'Invalid bank login presentation.' });
+        // In-app Hosted Link requires registered Universal Links and signed
+        // Associated Domains. Never silently launch an unsupported webview.
+        if (presentation === 'inApp' && !(config.team && config.redirect)) return send(503, { error: 'In-app bank login is not available in this release. Please contact Tender support.' });
+        const pending = state.sessions.find(s => !s.done && !s.closed && s.expires > Date.now());
         if (pending) {
           if ((input.itemID ?? null) !== pending.itemID) return send(409, { error: 'Finish or resume the existing browser session before starting a different bank connection.' });
-          return send(200, { id: pending.id, url: pending.url, expiresAt: new Date(pending.expires).toISOString() });
+          return send(200, { id: pending.id, url: pending.url, expiresAt: new Date(pending.expires).toISOString(), presentation: pending.presentation ?? 'browser' });
         }
         const updating = input.itemID !== undefined;
         const item = updating ? state.items.find(i => i.id === input.itemID) : null;
         if (updating && !item) return send(404, { error: 'Bank connection not found. Reload your connections.' });
+        const sessionID = randomUUID();
         const result = await plaid('/link/token/create', {
           client_name: 'Tender', country_codes: config.countries ?? ['US'], language: 'en',
           user: { client_user_id: config.user },
-          // This URL opens in the external browser, never an embedded webview.
-          // Plaid handles web OAuth; no native associated-domain entitlement needed.
-          hosted_link: { is_mobile_app: false, url_lifetime_seconds: 1800,
-            completion_redirect_uri: new URL('/bank-complete', config.publicURL).href },
+          ...(presentation === 'inApp' ? { redirect_uri: config.redirect } : {}),
+          hosted_link: { is_mobile_app: presentation === 'inApp', url_lifetime_seconds: 1800,
+            completion_redirect_uri: presentation === 'browser' ? new URL('/bank-complete', config.publicURL).href : `tender://bank-link-complete?session=${sessionID}` },
           ...(updating ? { access_token: item.token, update: { account_selection_enabled: true } } : {
             products: ['transactions'],
             account_filters: { depository: { account_subtypes: ['checking', 'savings', 'cash management', 'money market'] } },
@@ -121,11 +128,11 @@ export async function createBridge(config, storage, request = fetch) {
         });
         const url = new URL(result.hosted_link_url);
         if (url.protocol !== 'https:' || url.hostname !== 'secure.plaid.com' || url.username || url.password) throw new Error('Invalid Hosted Link URL');
-        const session = { id: randomUUID(), token: result.link_token, url: url.href,
+        const session = { id: sessionID, presentation, token: result.link_token, url: url.href,
           expires: Date.now() + 1800000, retainUntil: Date.now() + 7 * 3600000,
           itemID: item?.id ?? null, completed: [], done: false };
         await persist({ ...state, sessions: [...state.sessions.filter(s => s.retainUntil > Date.now()).slice(-19), session] });
-        return send(200, { id: session.id, url: session.url, expiresAt: new Date(session.expires).toISOString() });
+        return send(200, { id: session.id, url: session.url, expiresAt: new Date(session.expires).toISOString(), presentation: session.presentation ?? 'browser' });
       }
       if (req.method === 'POST' && route === '/v1/hosted-link/finish') {
         const input = await body(req);
@@ -144,6 +151,7 @@ export async function createBridge(config, storage, request = fetch) {
         const diagnostic = safeDiagnostic(flows.at(-1));
         if (session.itemID) {
           if (flows.some(flow => flow.on_success != null)) {
+            await persist({ ...state, items: state.items.map(i => i.id === session.itemID ? { ...i, lastAutomaticAttempt: 0 } : i) });
             await saveSession({ done: true, token: null, url: null });
             return send(200, { status: 'connected' });
           }
@@ -173,7 +181,11 @@ export async function createBridge(config, storage, request = fetch) {
             return send(200, { status: 'connected' });
           }
         }
-        return send(200, { status: diagnostic.code ? 'failed' : Date.now() > session.expires ? 'expired' : flows.some(f => f.finished_at && (f.exit || f.on_exit)) ? 'cancelled' : 'pending', diagnostic });
+        const status = diagnostic.code ? 'failed' : Date.now() > session.expires ? 'expired' : flows.some(f => f.finished_at && (f.exit || f.on_exit)) ? 'cancelled' : 'pending';
+        // Keep the record for recovery/audit, but a terminal session must not
+        // block a fresh user-initiated login for another half hour.
+        if (status !== 'pending') await saveSession({ closed: true });
+        return send(200, { status, diagnostic });
       }
       if (req.method === 'GET' && route === '/v1/connections') {
         return send(200, { connections: state.items.map((item, index) => ({ id: item.id, name: item.name || `Bank connection ${index + 1}` })) });
@@ -191,6 +203,44 @@ export async function createBridge(config, storage, request = fetch) {
           return send(500, { error: 'Bank link could not be stored. Review connected apps in Plaid before retrying; trial slots are not restored.' });
         }
         return send(200, { linked: true });
+      }
+      if (req.method === 'POST' && route === '/v1/sync') {
+        const now = Date.now();
+        const due = new Set(state.items.filter(i => now - (i.lastAutomaticAttempt ?? 0) >= 60000).map(i => i.id));
+        if (due.size) {
+          // Persist the throttle before provider calls. Failed/repeated requests
+          // cannot cause an unbounded live-balance loop across Worker restarts.
+          await persist({ ...state, items: state.items.map(i => due.has(i.id) ? { ...i, lastAutomaticAttempt: now } : i) });
+          const updated = await Promise.all(state.items.map(async item => {
+            if (!due.has(item.id)) return item;
+            let next = { ...item };
+            try {
+              next = await syncItem(next, config.env, plaid);
+              next.activityIssue = null;
+            } catch (error) {
+              next.activityIssue = { itemID: item.id, name: item.name || 'Your bank', requiresReauthentication: error.providerCode === 'ITEM_LOGIN_REQUIRED', message: 'Bank activity could not update. Saved activity may be outdated.' };
+            }
+            try {
+              const result = await plaid('/accounts/balance/get', { access_token: item.token });
+              if (!Array.isArray(result.accounts)) throw new Error('Invalid bank accounts response');
+              const checkedAt = new Date().toISOString();
+              next.accounts = normalizeAccounts(result, checkedAt).map(account => ({ ...account, institutionName: item.name ?? null, itemID: item.id }));
+              next.balancesCheckedAt = checkedAt;
+              next.balanceIssue = null;
+            } catch (error) {
+              next.balanceIssue = { itemID: item.id, name: item.name || 'Your bank', requiresReauthentication: error.providerCode === 'ITEM_LOGIN_REQUIRED', message: 'Bank balances could not update. Saved balances may be outdated.' };
+            }
+            return next;
+          }));
+          await persist({ ...state, items: updated });
+        }
+        const issues = state.items.flatMap(i => [i.balanceIssue, i.activityIssue].filter(Boolean));
+        const oldestCheck = key => state.items.length && state.items.every(i => i[key]) ? state.items.map(i => i[key]).sort()[0] : null;
+        return send(200, { environment: config.env,
+          accounts: state.items.flatMap(i => i.accounts ?? []),
+          items: state.items.map(i => ({ id: i.id, checkedAt: i.transactionsCheckedAt ?? null, transactions: i.transactions ?? [] })),
+          connectionIssues: issues, errors: issues.map(i => i.message),
+          balancesCheckedAt: oldestCheck('balancesCheckedAt'), activityCheckedAt: oldestCheck('transactionsCheckedAt') });
       }
       if ((req.method === 'GET' && route === '/v1/accounts') || (req.method === 'POST' && route === '/v1/balances/refresh')) {
         const fresh = req.method === 'POST';

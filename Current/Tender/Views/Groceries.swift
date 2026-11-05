@@ -43,7 +43,7 @@ struct GroceryView: View {
                     HStack(spacing: 12) {
                         CategoryIcon(symbol: grocery.purchasedAt == nil ? "basket" : "checkmark.seal")
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(grocery.name).font(.headline)
+                            HStack { Text(grocery.name).font(.headline); AssistantBadge(origin: grocery.assistantOrigin, edited: grocery.assistantLastEdit) }
                             Text("\(grocery.quantity) × \(grocery.unit) · \(grocery.purchasedAt == nil ? "Planned" : "Purchased")").font(.caption)
                             if let shop = grocery.storeName, !shop.isEmpty { Text(shop).font(.caption) }
                             if let planned = grocery.plannedAt, grocery.purchasedAt == nil { Text(planned.formatted(date: .omitted, time: .shortened)).font(.caption) }
@@ -112,7 +112,7 @@ struct GroceryForm: View {
                         .lineLimit(2...3).focused($inputFocused).frame(minHeight: 48)
                     Button {
                         inputFocused = false; speech.stop()
-                        if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true } else { choosingPhoto = true }
+                        if CameraPicker.isAvailable { camera = true } else { choosingPhoto = true }
                     } label: { Image(systemName: "text.viewfinder").frame(width: 44, height: 44) }
                         .buttonStyle(.borderless).accessibilityLabel("Scan price label")
                         .contextMenu { Button("Choose label photo", systemImage: "photo") { inputFocused = false; choosingPhoto = true } }
@@ -126,7 +126,7 @@ struct GroceryForm: View {
                 }
                 HStack {
                     Text("$")
-                    TextField("Price (optional)", text: $price).keyboardType(.decimalPad).focused($inputFocused)
+                    TenderField("Price (optional)", text: $price, numeric: true).focused($inputFocused)
                     Picker("Quantity", selection: $quantity) { ForEach(1...99, id: \.self) { Text("\($0)").tag($0) } }
                         .pickerStyle(.menu).fixedSize().accessibilityLabel("Quantity")
                 }
@@ -239,9 +239,9 @@ struct GroceryDetail: View {
                 Section("Estimate") { LabeledContent("Per \(item.unit)", value: item.estimatedUnitPrice.map { Money.format($0) } ?? "No prices yet"); Stepper("Quantity: \(item.quantity)", value: Binding(get: { self.item?.quantity ?? 1 }, set: { value in _ = store.update { ledger in if let i = ledger.groceries.firstIndex(where: { $0.id == itemID }) { ledger.groceries[i].quantity = value } } }), in: 1...99) }
                 Section {
                     TenderField("Store (optional)", text: $shop).focused($inputFocused)
-                    TenderField("Price per \(item.unit) (USD)", text: $price).keyboardType(.decimalPad).focused($inputFocused)
+                    TenderField("Price per \(item.unit) (USD)", text: $price, numeric: true).focused($inputFocused)
                     PhotosPicker(selection: $photo, matching: .images) { Label("Choose Price Photo", systemImage: "photo") }
-                    if UIImagePickerController.isSourceTypeAvailable(.camera) { Button { camera = true } label: { Label("Photograph Shelf Price", systemImage: "camera") } }
+                    if CameraPicker.isAvailable { Button { camera = true } label: { Label("Photograph Shelf Price", systemImage: "camera") } }
                     if reading { ProgressView("Reading label…") }
                     if imageData != nil { Label("Photo attached", systemImage: "checkmark.circle") }
                     if !ocr.isEmpty { Text(ocr).font(.caption).textSelection(.enabled) }
@@ -275,7 +275,7 @@ struct GroceryDetail: View {
             .quickLookPreview($preview)
             .sheet(isPresented: $editingPlan) { if let item { NavigationStack { GroceryPlanEditor(item: item) } } }
             .sheet(isPresented: $purchase) { if let item { NavigationStack { ExpenseForm(initialAmount: Money.input((item.estimatedUnitPrice ?? 0) * Int64(item.quantity)), initialCategory: store.ledger.categories.first(where: { $0.name == "Groceries" })?.id, initialMerchant: item.storeName?.isEmpty == false ? item.storeName! : item.name, groceryID: item.id) } } }
-            .confirmationDialog("Delete this item and its price history?", isPresented: $deleting, titleVisibility: .visible) { Button("Delete", role: .destructive) { if store.update({ $0.groceries.removeAll { $0.id == itemID } }) { Task { await store.refreshReminders() }; dismiss() } } }
+            .confirmationDialog("Move this item and its price history to Archive?", isPresented: $deleting, titleVisibility: .visible) { Button("Delete", role: .destructive) { if store.update({ $0.archiveGrocery(itemID) }) { Task { await store.refreshReminders() }; dismiss() } } }
     }
     private func scan(_ data: Data) async {
         guard let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.8), jpeg.count <= 20_000_000 else { ocr = "Choose a supported photo under 20 MB."; return }

@@ -10,6 +10,181 @@ final class PersonalFeatureTests: XCTestCase {
         ledger.accounts = [Account(name: "Checking", available: 10000, bankAccountKey: "production:checking")]
         return ledger
     }
+    func testBankReceiptsAndNotesSurviveRefreshWithoutCreatingExpense() throws {
+        var ledger = ledger(); let t = transaction()
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: [t])])
+        let details = BankTransactionDetails(note: "Dinner with friends", attachments: ["receipt.jpg"])
+        try ledger.saveBankTransactionDetails(details, for: t.id)
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: [transaction(amount: 599)])])
+        let restored = try JSONDecoder().decode(Ledger.self, from: JSONEncoder().encode(ledger))
+        XCTAssertEqual(restored.bankTransactionDetails?[t.id], details)
+        XCTAssertTrue(restored.expenses.isEmpty)
+        XCTAssertEqual(restored.available, 10000)
+        XCTAssertThrowsError(try ledger.saveBankTransactionDetails(details, for: "unknown"))
+    }
+    func testPendingReceiptMovesToPostedAndStaleEditorCanSave() throws {
+        var ledger = ledger(); let pending = transaction("pending", pending: true)
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: [pending])])
+        try ledger.saveBankTransactionDetails(BankTransactionDetails(note: "Tip included", attachments: ["tip.jpg"]), for: pending.id)
+        var posted = transaction("posted", amount: 699); posted.pendingID = pending.id
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: [posted])])
+        XCTAssertNil(ledger.bankTransactionDetails?[pending.id])
+        XCTAssertEqual(ledger.bankTransactionDetails?[posted.id]?.attachments, ["tip.jpg"])
+        try ledger.saveBankTransactionDetails(BankTransactionDetails(note: "Updated", attachments: ["tip.jpg"]), for: pending.id)
+        XCTAssertEqual(ledger.bankTransactionDetails?[posted.id]?.note, "Updated")
+        XCTAssertTrue(ledger.expenses.isEmpty)
+    }
+    func testBankReceiptBackupIncludesFilesAndRejectsUnsafeNames() throws {
+        var ledger = ledger(); let t = transaction()
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: [t])])
+        try ledger.saveBankTransactionDetails(BankTransactionDetails(note: "Warranty", attachments: ["receipt.pdf"]), for: t.id)
+        XCTAssertEqual(ledger.attachmentNames, ["receipt.pdf"])
+        _ = try LedgerArchive(ledger: ledger, attachments: ["receipt.pdf": Data("receipt".utf8)]).validated()
+        XCTAssertThrowsError(try LedgerArchive(ledger: ledger, attachments: [:]).validated())
+        ledger.renameAttachments(["receipt.pdf": "restored.pdf"])
+        XCTAssertEqual(ledger.bankTransactionDetails?[t.id]?.attachments, ["restored.pdf"])
+        XCTAssertThrowsError(try ledger.saveBankTransactionDetails(BankTransactionDetails(attachments: ["../unsafe"]), for: t.id))
+    }
+    func testExpenseArchiveRestoresBalanceOnceAndRetainsReceiptBackup() throws {
+        var ledger = ledger()
+        let expense = Expense(merchant: "Cash purchase", amount: 500, categoryID: ledger.categories[0].id, accountID: ledger.accounts[0].id, attachment: "receipt.jpg")
+        try ledger.record(expense)
+        XCTAssertEqual(ledger.available, 9500)
+        ledger.archiveExpense(expense.id)
+        XCTAssertEqual(ledger.available, 10000)
+        XCTAssertTrue(ledger.expenses.isEmpty)
+        XCTAssertEqual(ledger.attachmentNames, ["receipt.jpg"])
+        _ = try LedgerArchive(ledger: ledger, attachments: ["receipt.jpg": Data([1])]).validated()
+        ledger.renameAttachments(["receipt.jpg": "restored.jpg"])
+        let restored = try JSONDecoder().decode(Ledger.self, from: JSONEncoder().encode(ledger))
+        ledger = restored
+        try ledger.restoreExpense(expense.id)
+        XCTAssertEqual(ledger.available, 9500)
+        XCTAssertEqual(ledger.expenses[0].attachment, "restored.jpg")
+        XCTAssertThrowsError(try ledger.restoreExpense(expense.id))
+        XCTAssertEqual(ledger.expenses.count, 1)
+    }
+    func testArchiveRestoreAfterNewSnapshotDoesNotDeductAgain() throws {
+        var ledger = ledger()
+        let expense = Expense(merchant: "Purchase", amount: 500, categoryID: ledger.categories[0].id, accountID: ledger.accounts[0].id)
+        try ledger.record(expense); ledger.archiveExpense(expense.id)
+        ledger.setBalance(accountID: ledger.accounts[0].id, available: 9000)
+        try ledger.restoreExpense(expense.id)
+        XCTAssertEqual(ledger.available, 9000)
+        XCTAssertNil(ledger.expenses[0].balanceAppliedAt)
+        ledger.removeExpense(id: expense.id)
+        XCTAssertEqual(ledger.available, 9000)
+    }
+    func testEnvelopeArchiveRestoresOriginalExpenseAndRecurringLinks() throws {
+        var ledger = ledger(); let category = ledger.categories[0]
+        let expense = Expense(merchant: "Purchase", amount: 100, categoryID: category.id, accountID: ledger.accounts[0].id)
+        try ledger.record(expense, deductFromBalance: false)
+        ledger.recurring = [RecurringBill(name: "Subscription", amount: 100, categoryID: category.id, nextDue: Date())]
+        ledger.archiveCategories([category.id])
+        XCTAssertNotEqual(ledger.expenses[0].categoryID, category.id)
+        _ = try ledger.validated()
+        ledger.restoreCategory(category.id)
+        XCTAssertEqual(ledger.expenses[0].categoryID, category.id)
+        XCTAssertEqual(ledger.recurring[0].categoryID, category.id)
+        XCTAssertEqual(ledger.categories.filter { $0.id == category.id }.count, 1)
+    }
+    func testRecurringAndGroceryArchiveRestoreRetainHistory() throws {
+        var ledger = ledger()
+        let bill = RecurringBill(name: "Internet", amount: 1000, categoryID: ledger.categories[0].id, nextDue: Date(), remind: true)
+        let item = GroceryItem(name: "Milk", observations: [PriceObservation(price: 400, store: "Shop", photo: "milk.jpg")])
+        ledger.recurring = [bill]; ledger.groceries = [item]
+        ledger.archiveRecurring(bill.id); ledger.archiveGrocery(item.id)
+        XCTAssertTrue(ledger.recurring.isEmpty && ledger.groceries.isEmpty)
+        XCTAssertEqual(ledger.attachmentNames, ["milk.jpg"])
+        ledger.renameAttachments(["milk.jpg": "new.jpg"])
+        ledger.restoreRecurring(bill.id); ledger.restoreGrocery(item.id)
+        XCTAssertEqual(ledger.recurring[0], bill)
+        XCTAssertEqual(ledger.groceries[0].observations[0].photo, "new.jpg")
+        _ = try ledger.validated()
+    }
+    func testPrimaryDefaultsToFirstCardAndSelectionPersists() throws {
+        var ledger = ledger()
+        let first = ledger.accounts[0]
+        ledger.accounts.insert(Account(name: "Cash", available: 500, isCash: true), at: 0)
+        let second = Account(name: "Second bank", available: 20000, bankAccountKey: "production:second")
+        ledger.accounts.append(second)
+        XCTAssertEqual(ledger.primaryAccount?.id, first.id)
+        try ledger.setPrimaryAccount(second.id)
+        let restored = try JSONDecoder().decode(Ledger.self, from: JSONEncoder().encode(ledger))
+        XCTAssertEqual(restored.primaryAccount?.id, second.id)
+        XCTAssertEqual(restored.available, 30500)
+        ledger.archiveAccount(second.id)
+        XCTAssertEqual(ledger.primaryAccount?.id, first.id)
+        XCTAssertThrowsError(try ledger.setPrimaryAccount(second.id))
+        XCTAssertThrowsError(try ledger.setPrimaryAccount(ledger.accounts[0].id))
+    }
+    func testPrimaryTransactionsAndSuggestionsExcludeOtherAccounts() throws {
+        var ledger = ledger()
+        let second = Account(name: "Second bank", available: 20000, bankAccountKey: "production:second")
+        ledger.accounts.append(second)
+        let primaryCharges = [transaction("one", date: "2026-01-10"), transaction("two", date: "2026-02-10")]
+        var other = transaction("other", date: "2026-01-10"); other.accountKey = "production:second"
+        var another = transaction("another", date: "2026-02-10"); another.accountKey = "production:second"
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: primaryCharges + [other, another])])
+        XCTAssertEqual(Set(ledger.bankTransactions(for: ledger.primaryAccount).map(\.id)), Set(primaryCharges.map(\.id)))
+        XCTAssertEqual(ledger.possibleSubscriptions(for: ledger.primaryAccount).count, 1)
+        XCTAssertTrue(ledger.possibleSubscriptions(for: ledger.primaryAccount).allSatisfy { $0.id.hasPrefix("production:checking:") })
+        try ledger.setPrimaryAccount(second.id)
+        XCTAssertEqual(Set(ledger.bankTransactions(for: ledger.primaryAccount).map(\.id)), [other.id, another.id])
+        XCTAssertTrue(ledger.possibleSubscriptions(for: ledger.primaryAccount).allSatisfy { $0.id.hasPrefix("production:second:") })
+        XCTAssertTrue(ledger.bankTransactions(for: nil).isEmpty)
+        XCTAssertTrue(ledger.possibleSubscriptions(for: nil).isEmpty)
+    }
+    func testWholeCardArchiveRetainsHistoryAndBlocksRefreshUntilRestore() throws {
+        var ledger = ledger(); let card = ledger.accounts[0]; let t = transaction()
+        ledger.accounts.append(Account(name: "Other", available: 20000, bankAccountKey: "production:other"))
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: [t])])
+        try ledger.recordBankPurchase(t, categoryID: ledger.categories[0].id)
+        let manual = Expense(merchant: "Manual receipt", amount: 300, categoryID: ledger.categories[0].id, accountID: card.id, note: "Keep this", attachment: "manual.jpg")
+        try ledger.record(manual, deductFromBalance: false)
+        ledger.groceries = [GroceryItem(name: "Linked purchase", purchasedAt: Date(), expenseID: manual.id)]
+        var bill = RecurringBill(name: "Linked subscription", amount: 499, categoryID: ledger.categories[0].id, nextDue: Date())
+        bill.bankSuggestionID = "production:checking:service"; ledger.recurring = [bill]
+        try ledger.saveBankTransactionDetails(BankTransactionDetails(note: "Bank note", attachments: ["bank.pdf"]), for: t.id)
+        ledger.archiveCardAndHistory(card.id)
+        XCTAssertEqual(ledger.available, 20000)
+        XCTAssertTrue(ledger.expenses.isEmpty && ledger.groceries.isEmpty && ledger.recurring.isEmpty)
+        XCTAssertNil(ledger.bankTransactionDetails?[t.id])
+        XCTAssertEqual(ledger.archivedCards?.first?.details[t.id]?.note, "Bank note")
+        XCTAssertEqual(ledger.attachmentNames, ["manual.jpg", "bank.pdf"])
+        _ = try LedgerArchive(ledger: ledger, attachments: ["manual.jpg": Data([1]), "bank.pdf": Data([2])]).validated()
+        let snapshot = BankSnapshot(id: "checking", name: "Checking", currency: "USD", availableCents: 99999, retrievedAt: Date())
+        _ = try ledger.synchronizeBankAccounts([snapshot], environment: "production")
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: [t])])
+        XCTAssertEqual(ledger.accounts.first { $0.id == card.id }?.available, 10000)
+        XCTAssertTrue((ledger.bankActivity ?? []).flatMap(\.transactions).isEmpty)
+        ledger.renameAttachments(["manual.jpg": "new.jpg", "bank.pdf": "new.pdf"])
+        ledger = try JSONDecoder().decode(Ledger.self, from: JSONEncoder().encode(ledger))
+        ledger.removeCategories([manual.categoryID])
+        try ledger.restoreCardAndHistory(card.id)
+        XCTAssertEqual(ledger.available, 30000)
+        XCTAssertEqual(ledger.expenses.count, 2)
+        XCTAssertEqual(ledger.bankTransactions(for: ledger.accounts[0]).count, 1)
+        XCTAssertEqual(ledger.bankTransactionDetails?[t.id]?.attachments, ["new.pdf"])
+        XCTAssertEqual(ledger.expenses.first { $0.id == manual.id }?.attachment, "new.jpg")
+        XCTAssertEqual(ledger.groceries.first?.expenseID, manual.id)
+        XCTAssertEqual(ledger.recurring.count, 1)
+        try ledger.restoreCardAndHistory(card.id)
+        XCTAssertEqual(ledger.expenses.count, 2)
+        _ = try ledger.validated()
+    }
+    func testAccountFeedIncludesManualPurchasesWithoutDuplicatingMatchedBankEntries() throws {
+        var ledger = ledger(); let t = transaction()
+        let manual = Expense(merchant: "Receipt", amount: 499, categoryID: ledger.categories[0].id, accountID: ledger.accounts[0].id)
+        let another = Expense(merchant: "Offline purchase", amount: 300, categoryID: ledger.categories[0].id, accountID: ledger.accounts[0].id)
+        try ledger.record(manual, deductFromBalance: false); try ledger.record(another, deductFromBalance: false)
+        try ledger.receiveBankActivity([BankActivityItem(id: "bank", transactions: [t])])
+        XCTAssertEqual(ledger.accountActivity(for: ledger.primaryAccount).count, 3)
+        try ledger.recordBankPurchase(t, categoryID: manual.categoryID, matching: manual.id)
+        XCTAssertEqual(ledger.accountActivity(for: ledger.primaryAccount).count, 2)
+        ledger.accounts.append(Account(name: "Other", available: 0))
+        XCTAssertTrue(ledger.accountActivity(for: ledger.accounts[1]).isEmpty)
+    }
     func testBankImportDoesNotDeductAndIsIdempotent() throws {
         var ledger = ledger(); let t = transaction()
         try ledger.receiveBankActivity([BankActivityItem(id: "bank", checkedAt: Date(), transactions: [t])])

@@ -29,6 +29,9 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Enable only in a signed build with Associated Domains and the matching Plaid redirect. -->
+	<key>TenderInAppBankLogin</key>
+	<false/>
 	<key>TenderGoogleClientID</key>
 	<string>352739504670-f6h0f0kql6oq7qh4evv0ca2ksqdrj94n.apps.googleusercontent.com</string>
 	<key>UIFileSharingEnabled</key>

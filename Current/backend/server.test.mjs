@@ -26,6 +26,15 @@ test('bank token storage is authenticated encryption', () => {
   assert.deepEqual(decrypt(sealed, key), value);
   assert.throws(() => decrypt(sealed, randomBytes(32)));
 });
+test('card-art matching receives official product identity without guessing from account nicknames', () => {
+  const [account] = normalizeAccounts({ accounts: [{ account_id: 'college', name: 'My everyday account',
+    official_name: 'CHASE COLLEGE', type: 'depository', subtype: 'checking', mask: '2579',
+    balances: { iso_currency_code: 'USD', available: 25, current: 25 } }] }, '2026-10-30T00:00:00Z');
+  assert.equal(account.name, 'My everyday account');
+  assert.equal(account.officialName, 'CHASE COLLEGE');
+  assert.equal(account.accountType, 'depository');
+  assert.equal(account.accountSubtype, 'checking');
+});
 test('unauthorized callers cannot trigger provider calls; linked tokens never leave backend', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'tender-bank-test-'));
   let calls = 0;

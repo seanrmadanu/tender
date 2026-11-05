@@ -1,5 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import QuickLook
+enum SettingsRoute: Hashable { case profile, aiConnections, accounts, updates, archive, backup, privacy }
 
 struct SettingsView: View {
     @Environment(AccountAuth.self) private var auth
@@ -8,7 +10,9 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                HStack { Image(systemName: "seal").font(.largeTitle); VStack(alignment: .leading) { Text("tender").font(.system(.title, design: .serif)); Text("Personal edition · USD").font(.caption) } }
+                NavigationLink { ProfileSettingsView() } label: { ProfileIdentityHeader() }
+                    .accessibilityIdentifier("profile-settings-header")
+                    .listRowInsets(EdgeInsets())
             }
             Section("Signed in") {
                 Text(auth.email)
@@ -19,20 +23,29 @@ struct SettingsView: View {
             Section("Your money") {
                 NavigationLink { AccountForm() } label: { Label("Accounts & Cash Wallet", systemImage: "wallet.bifold") }
                 NavigationLink { EmailSubscriptionsView() } label: { Label("Subscription Emails", systemImage: "envelope") }
-                NavigationLink { BankConnectionView() } label: { Label("Bank Connections", systemImage: "building.columns") }
+                NavigationLink { AIConnectionsView() } label: { Label("AI Connections", systemImage: "sparkles") }.accessibilityIdentifier("ai-connections-settings")
             }
             Section("Preferences") {
+                NavigationLink { ProfileSettingsView() } label: { Label("Profile", systemImage: "person.crop.square") }
+                    .accessibilityIdentifier("profile-settings")
                 NavigationLink { UpdateSettingsView() } label: { Label("Bank Updates & Reminders", systemImage: "arrow.triangle.2.circlepath") }
                 NavigationLink { ShortcutSettingsView() } label: { Label("Shopping Shortcut", systemImage: "hand.tap") }
             }
             Section("Your data") {
+                NavigationLink { ArchiveSettingsView() } label: { Label("Archive", systemImage: "archivebox") }
                 NavigationLink { BackupSettingsView() } label: { Label("Backup & Restore", systemImage: "icloud") }
                 NavigationLink { PrivacySettingsView() } label: { Label("Privacy & Delete Data", systemImage: "lock.shield") }
                 Button(role: .destructive) { resetting = true } label: { Label("Reset App", systemImage: "arrow.counterclockwise") }
                 if store.ledger.isDemo { NavigationLink("Review Old Sample Data") { SampleCleanupView() } }
             }
-            Section { Text("Your ledger is stored on this device for this account. Gmail access is optional. Bank connections for signed-in accounts are still being prepared.").font(.footnote).foregroundStyle(.secondary) }
+            Section { Text("Your ledger is stored on this device for this account. Gmail access is optional. Connect your bank through Plaid for bank updates, or keep accounts and cash up to date manually.").font(.footnote).foregroundStyle(.secondary) }
+            Section {
+                LabeledContent("Version", value: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"))")
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("installed-app-version")
+            }
         }.paperForm().navigationTitle("Settings")
+            .task { await auth.loadProfileIfNeeded() }
             .sheet(isPresented: $resetting) { NavigationStack { PrivacySettingsView(resetApp: true).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { resetting = false } } } } }
     }
 }
@@ -41,14 +54,18 @@ struct UpdateSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Automatically check bank information", isOn: Binding(get: { store.automaticBankUpdates }, set: { store.automaticBankUpdates = $0 }))
-                Text("Checks when you open Tender and every five minutes while it is active. Retrieves provider-cached balances and available transaction updates; it does not request a paid on-demand bank refresh. Banks can take time to post changes.").font(.footnote)
-                Button("Check Now") { Task { await store.refreshBank(force: true) } }.disabled(store.isAccountLedger || store.bankUpdating || store.bankAccessPaused || BankConfiguration.load() == nil)
-                if let date = store.bankFetchedAt { LabeledContent("Last balance retrieval", value: date.formatted(date: .abbreviated, time: .shortened)) }
-                if let message = store.bankMessage { Text(message).foregroundStyle(Ink.warning) }
-                Text("Wallet cards label cached balances. Recorded ledger balances remain separate and change only through reviewed snapshots or manual entries.").font(.footnote)
+                Text("Bank balances and activity update automatically when you open Tender, every five minutes while it is active, and after the internet reconnects. Banks can take time to post changes.")
+                BankSyncStatusView()
+                Text("Without internet, Tender keeps your last saved information and shows when it was updated.").font(.footnote)
             } header: { Text("Bank freshness") }
             Section {
+                Toggle("Shopping & recurring reminders", isOn: Binding(get: { store.ledger.appPreferences?.remindersEnabled ?? true }, set: { value in
+                    let saved = store.update { ledger in
+                        if ledger.appPreferences == nil { ledger.appPreferences = AppPreferences() }
+                        ledger.appPreferences?.remindersEnabled = value
+                    }
+                    if saved { Task { await store.refreshReminders() } }
+                })).accessibilityIdentifier("app-reminders-enabled")
                 Text("Shopping reminders arrive one hour before the time you confirm. Recurring payment reminders arrive the previous day at 9 AM. iOS controls delivery; Tender schedules the nearest 60 future reminders.")
                 Button("Enable Notifications") { Task { _ = await store.enableReminders(); await store.refreshReminders() } }
             } header: { Text("Reminders") }
@@ -118,12 +135,12 @@ struct PrivacySettingsView: View {
     @State private var busy = false
     @State private var document = ExportDocument(data: Data())
     @State private var message: String?
-    private var remoteAccessUnknown: Bool { BankConfiguration.load() == nil && (resetApp || store.ledger.accounts.contains { $0.bankAccountKey != nil }) }
+    private var remoteAccessUnknown: Bool { !store.isAccountLedger && BankConfiguration.load() == nil && (resetApp || store.ledger.accounts.contains { $0.bankAccountKey != nil }) }
     var body: some View {
         Form {
             Section("Protection") {
                 Text("Bank credentials stay in the encrypted backend vault. Device access uses Keychain; ledger and receipt files use iOS file protection. Photo recognition and this app’s shopping speech recognition run on device.")
-                Text("No financial data is sent to an AI service. Your exported backups and Apple device backups follow your own storage settings.").font(.footnote)
+                Text("AI Connections is optional. Approved assistants can use your shared app information, including bank names and balances. Bank account/card numbers and connection credentials are excluded from AI tools. Receipt and profile-photo files stay on this device. Your exported backups follow your own storage settings.").font(.footnote)
             }
             Section {
                 if !resetApp { Button("Wipe My Bank Information", role: .destructive) { bankOnly = true; confirm = true }.disabled(busy || store.bankUpdating || store.gmail.busy) }
@@ -153,6 +170,12 @@ struct PrivacySettingsView: View {
         busy = true; store.bankMaintenance = true; defer { busy = false; store.bankMaintenance = false }
         do {
             let unknown = remoteAccessUnknown
+            if store.isAccountLedger {
+                if bankOnly { try await store.wipeCloudBankRecords() }
+                else { try await store.eraseCloudLedger() }
+                guard let client = store.bankClient else { throw BankError.message("Sign in again before removing bank access.") }
+                try await client.disconnect()
+            }
             if resetApp || !store.isAccountLedger { if let config = BankConfiguration.load() { try await BankClient(configuration: config).disconnect() } }
             try store.eraseLocalData(bankOnly: bankOnly)
             if resetApp {
@@ -161,5 +184,101 @@ struct PrivacySettingsView: View {
             }
             message = unknown ? "Device data removed. Old remote bank access could not be verified or revoked; manage it with the bank/provider." : bankOnly ? "Bank information removed and saved connections revoked." : "Tender data deleted. Restore a saved backup if you return, then reconnect your bank."
         } catch { message = "Deletion could not finish: " + error.localizedDescription + " Retry before assuming all data was removed." }
+    }
+}
+
+struct ArchiveSettingsView: View {
+    @Environment(LedgerStore.self) private var store
+    var body: some View {
+        List {
+            Section { Text("Restore items you removed from Tender. Restoring a manual expense reapplies its balance deduction only while its original balance snapshot is still current.").font(.footnote) }
+            Section("Envelopes") {
+                ForEach(store.ledger.archivedItems?.envelopes ?? []) { item in
+                    restoreRow(item.category.name) { _ = store.update { $0.restoreCategory(item.id) } }
+                }
+                if (store.ledger.archivedItems?.envelopes ?? []).isEmpty { Text("No archived envelopes").foregroundStyle(.secondary) }
+            }
+            Section("Expenses") {
+                ForEach(store.ledger.archivedItems?.expenses ?? []) { item in
+                    restoreRow(item.expense.merchant + " · " + Money.format(item.expense.amount)) { _ = store.update { try $0.restoreExpense(item.id) } }
+                }
+                if (store.ledger.archivedItems?.expenses ?? []).isEmpty { Text("No archived expenses").foregroundStyle(.secondary) }
+            }
+            Section("Fixed expenses") {
+                ForEach((store.ledger.fixedExpenses ?? []).filter { $0.archivedAt != nil }) { fixed in
+                    restoreRow(fixed.name) { _ = store.update { ledger in if let index = ledger.fixedExpenses?.firstIndex(where: { $0.id == fixed.id }) { ledger.fixedExpenses?[index].archivedAt = nil } } }
+                }
+                if !(store.ledger.fixedExpenses ?? []).contains(where: { $0.archivedAt != nil }) { Text("No archived fixed expenses").foregroundStyle(.secondary) }
+            }
+            Section("Subscriptions & recurring payments") {
+                ForEach(store.ledger.archivedItems?.recurring ?? []) { item in
+                    restoreRow(item.name) { if store.update({ $0.restoreRecurring(item.id) }) { Task { await store.refreshReminders() } } }
+                }
+                if (store.ledger.archivedItems?.recurring ?? []).isEmpty { Text("No archived payments").foregroundStyle(.secondary) }
+            }
+            Section("Groceries") {
+                ForEach(store.ledger.archivedItems?.groceries ?? []) { item in
+                    restoreRow(item.name) { if store.update({ $0.restoreGrocery(item.id) }) { Task { await store.refreshReminders() } } }
+                }
+                if (store.ledger.archivedItems?.groceries ?? []).isEmpty { Text("No archived groceries").foregroundStyle(.secondary) }
+            }
+            Section("Accounts & cards") {
+                ForEach(store.ledger.accounts.filter { $0.isArchived == true }) { item in
+                    HStack {
+                        NavigationLink { ArchivedCardDetailView(accountID: item.id) } label: { Text(item.name) }
+                        Button("Restore") { _ = store.update { try $0.restoreCardAndHistory(item.id) } }
+                            .buttonStyle(.bordered).frame(minHeight: 44).accessibilityIdentifier("restore-card-" + item.id.uuidString)
+                    }
+                }
+                if !store.ledger.accounts.contains(where: { $0.isArchived == true }) { Text("No archived accounts").foregroundStyle(.secondary) }
+            }
+        }.paperForm().navigationTitle("Archive")
+    }
+    private func restoreRow(_ name: String, action: @escaping () -> Void) -> some View {
+        HStack {
+            Text(name); Spacer()
+            Button("Restore", action: action).buttonStyle(.bordered).frame(minHeight: 44)
+        }
+    }
+}
+
+struct ArchivedCardDetailView: View {
+    @Environment(LedgerStore.self) private var store
+    let accountID: UUID
+    @State private var preview: URL?
+    private var account: Account? { store.ledger.accounts.first { $0.id == accountID } }
+    private var history: ArchivedCardHistory? { store.ledger.archivedCards?.first { $0.id == accountID } }
+    var body: some View {
+        List {
+            Section {
+                Text("This card’s saved information is kept here until you restore it.").font(.footnote)
+                Text("Saved balance: " + Money.format(account?.available ?? 0))
+            }
+            Section("Bank transactions") {
+                ForEach((history?.bankItems ?? []).flatMap(\.transactions).sorted { $0.date > $1.date }) { transaction in
+                    VStack(alignment: .leading, spacing: 8) {
+                        BankActivityRow(transaction: transaction)
+                        if let details = history?.details[transaction.id] {
+                            if !details.note.isEmpty { Text(details.note).font(.subheadline) }
+                            ForEach(details.attachments, id: \.self) { file in
+                                Button("View receipt") { preview = store.attachmentURL(file) }
+                            }
+                        }
+                    }
+                }
+            }
+            Section("Manual & categorized expenses") {
+                ForEach(history?.expenses ?? []) { expense in
+                    VStack(alignment: .leading, spacing: 8) {
+                        ExpenseListRow(expense: expense)
+                        if !expense.note.isEmpty { Text(expense.note).font(.subheadline) }
+                        if let file = expense.attachment { Button("View receipt") { preview = store.attachmentURL(file) } }
+                    }
+                }
+            }
+            Section("Related groceries") { ForEach(history?.groceries ?? []) { Text($0.name) } }
+            Section("Related recurring payments") { ForEach(history?.recurring ?? []) { Text($0.name) } }
+        }.paperForm().navigationTitle(account?.name ?? "Archived card")
+            .quickLookPreview($preview)
     }
 }

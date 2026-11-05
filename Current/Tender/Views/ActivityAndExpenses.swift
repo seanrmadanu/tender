@@ -5,49 +5,7 @@ import QuickLook
 import ImageIO
 
 struct ActivityView: View {
-    @Environment(LedgerStore.self) private var store
-    @Binding var sheet: SheetRoute?
-    @State private var section = 0
-    @State private var selected: Expense?
-    @State private var categoryID: UUID?
-    @State private var billsOnly = false
-    @State private var thisMonth = true
-    @State private var search = ""
-    private var filtered: [Expense] {
-        let interval = thisMonth ? store.ledger.month() : nil
-        return store.ledger.expenses.filter { e in
-            (categoryID == nil || e.categoryID == categoryID) && (!billsOnly || e.attachment != nil) &&
-            (interval == nil || (e.date >= interval!.start && e.date < interval!.end)) &&
-            (search.isEmpty || e.merchant.localizedCaseInsensitiveContains(search) || e.note.localizedCaseInsensitiveContains(search))
-        }.sorted { $0.date > $1.date }
-    }
-    var body: some View {
-        PaperScreen {
-            NavigationLink { ReportView() } label: { Label("Reports", systemImage: "chart.xyaxis.line") }
-            NavigationLink { BankActivityView() } label: { Label("Bank Activity", systemImage: "building.columns") }
-            Picker("Activity type", selection: $section) { Text("Expenses").tag(0); Text("Recurring").tag(1) }.pickerStyle(.segmented)
-            if section == 0 {
-                SectionHeading(title: "The everyday details.", subtitle: "Your expenses, with their paper trail.")
-                PaperCard {
-                    Picker("Category", selection: $categoryID) {
-                        Text("All categories").tag(UUID?.none)
-                        ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) }
-                    }.pickerStyle(.menu)
-                    Toggle("This month only", isOn: $thisMonth)
-                    Toggle("With bills attached", isOn: $billsOnly)
-                    Divider().overlay(Ink.line)
-                    AmountRow(label: "\(filtered.count) matching expenses", amount: filtered.reduce(0) { $0 + $1.amount })
-                }
-                if filtered.isEmpty { EmptyNote(symbol: "receipt", title: "No matching entries.", message: "Add an expense, or adjust your search and filters.") }
-                ForEach(filtered) { e in
-                    Button { selected = e } label: { ExpenseListRow(expense: e) }.buttonStyle(.plain)
-                }
-            } else { RecurringList() }
-        }.navigationTitle("Activity")
-            .searchable(text: $search, prompt: "Merchant or bill text")
-            .bottomAdd(section == 0 ? "Add expense" : "Add recurring payment") { sheet = section == 0 ? .expense : .recurring }
-            .sheet(item: $selected) { e in NavigationStack { ExpenseDetail(expense: e) } }
-    }
+    var body: some View { ReportView() }
 }
 
 struct ExpenseListRow: View {
@@ -58,7 +16,7 @@ struct ExpenseListRow: View {
         HStack(alignment: .top, spacing: 12) {
             CategoryIcon(symbol: category?.symbol ?? "tag")
             VStack(alignment: .leading, spacing: 5) {
-                Text(expense.merchant).font(.subheadline.weight(.semibold))
+                HStack(spacing: 5) { Text(expense.merchant).font(.subheadline.weight(.semibold)); AssistantBadge(origin: expense.assistantOrigin, edited: expense.assistantLastEdit) }
                 Text("\(category?.name ?? "Unknown") · \(expense.date.formatted(.dateTime.month(.abbreviated).day()))").font(.caption).foregroundStyle(Ink.muted)
             }
             Spacer(minLength: 6)
@@ -74,11 +32,12 @@ struct CategoryReviewView: View {
     @Environment(LedgerStore.self) private var store
     var categoryID: UUID
     var interval: DateInterval
+    var envelopeOnly = false
     @State private var selected: Expense?
     @State private var billsOnly = false
     private var category: BudgetCategory? { store.ledger.categories.first { $0.id == categoryID } }
     private var expenses: [Expense] {
-        store.ledger.expenses.filter { $0.categoryID == categoryID && $0.date >= interval.start && $0.date < interval.end }.sorted { $0.date > $1.date }
+        store.ledger.expenses.filter { $0.categoryID == categoryID && $0.date >= interval.start && $0.date < interval.end && (!envelopeOnly || $0.fixedExpenseID == nil) }.sorted { $0.date > $1.date }
     }
     var body: some View {
         PaperScreen {
@@ -106,6 +65,9 @@ struct ExpenseForm: View {
     var initialAccount: UUID? = nil
     var initialMerchant: String = ""
     var groceryID: UUID? = nil
+    var initialFixedExpenseID: UUID? = nil
+    @State private var fixedExpense: UUID?
+    @State private var showAccounts = false
     @State private var cash = false
     @State private var cashAccount: UUID?
     @State private var receipt = ReceiptDetails()
@@ -131,15 +93,31 @@ struct ExpenseForm: View {
 
             Section("Expense") {
                 TenderField("Merchant or description", text: $merchant)
-                TenderField("Amount (USD)", text: $amount).keyboardType(.decimalPad)
+                TenderField("Amount (USD)", text: $amount, numeric: true)
                 Picker("Category", selection: $category) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }
-                Toggle("Paid with cash", isOn: $cash)
-                if !cash { Picker("Paid from", selection: $account) { Text("Choose").tag(UUID?.none); ForEach(store.ledger.activeAccounts.filter { $0.isCash != true }) { Text($0.name).tag(Optional($0.id)) } } }
-                if cash {
-                    if store.ledger.activeAccounts.contains(where: { $0.isCash == true }) {
-                        Picker("Cash wallet", selection: $cashAccount) { ForEach(store.ledger.activeAccounts.filter { $0.isCash == true }) { Text($0.name).tag(Optional($0.id)) } }
-                    } else { Text("A cash wallet will be created with a zero opening balance. Set the amount you actually hold in Settings → Accounts.").font(.footnote) }
-                }
+                if !store.ledger.activeFixedExpenses.isEmpty || fixedExpense != nil { FixedExpensePicker(selection: $fixedExpense) }
+                Menu {
+                    ForEach(store.ledger.activeAccounts) { source in
+                        Button(source.name + (source.isCash == true ? " · Cash" : source.bankAccountKey == nil ? " · Offline" : " · Bank")) {
+                            account = source.id; cash = source.isCash == true
+                            if cash { cashAccount = source.id }
+                            deductFromBalance = cash || source.bankAccountKey == nil
+                        }
+                    }
+                    if !store.ledger.activeAccounts.contains(where: { $0.isCash == true }) {
+                        Button("Cash wallet") { cash = true; cashAccount = nil; deductFromBalance = true }
+                    }
+                    Divider()
+                    Button("Add account…", systemImage: "plus.circle") { showAccounts = true }
+                } label: {
+                    HStack {
+                        Text("Paid from")
+                        Spacer()
+                        Text(cash ? (store.ledger.accounts.first { $0.id == cashAccount }?.name ?? "Cash wallet") : (store.ledger.accounts.first { $0.id == account }?.name ?? "Choose"))
+                        Image(systemName: "chevron.up.chevron.down").font(.caption)
+                    }.frame(minHeight: 44)
+                }.accessibilityIdentifier("expense-paid-from")
+                if cash && cashAccount == nil { Text("A cash wallet will be created when you save. Set its opening balance in Accounts & Cash.").font(.footnote) }
                 DatePicker("Date", selection: $date, in: ...Date(), displayedComponents: .date)
                 TenderField("Notes", text: $note, axis: .vertical)
             }
@@ -147,15 +125,15 @@ struct ExpenseForm: View {
             if hasReceipt { ReceiptSummary(details: $receipt) }
             Section {
                 PhotosPicker(selection: $photo, matching: .images) { Label("Choose Bill Photo", systemImage: "photo") }
-                if UIImagePickerController.isSourceTypeAvailable(.camera) { Button { camera = true } label: { Label("Photograph Bill", systemImage: "camera") } }
+                if CameraPicker.isAvailable { Button { camera = true } label: { Label("Photograph Bill", systemImage: "camera") } }
                 Button { imported = true } label: { Label("Attach PDF or Image", systemImage: "doc.badge.plus") }
                 if reading { ProgressView("Reading bill on device…") }
                 if attachment != nil { Label("Bill attached (\(attachmentExt.uppercased()))", systemImage: "checkmark.circle"); Button("Remove Attachment", role: .destructive) { attachment = nil; receipt = ReceiptDetails(); hasReceipt = false } }
                 if let readError { Text(readError).foregroundStyle(Ink.warning) }
-            } header: { Text("Paper trail") } footer: { Text("Photos prefill recognized details for review. Check the total, date and payment method before saving. The receipt image is retained; PDFs are retained as attachments. Recognition runs on device.") }
-        }.paperForm().navigationTitle("Add Expense").navigationBarTitleDisplayMode(.inline)
+            } header: { Text("Paper trail") } footer: { Text("The system photo picker shares only images you select. Photos prefill recognized details for review. Check the total, date and payment method before saving. The receipt image is retained; PDFs are retained as attachments. Recognition runs on device.") }
+        }.paperForm().navigationTitle("Add manual expense").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(!valid) } }
-            .onAppear { guard !initialized else { return }; initialized = true; amount = initialAmount; merchant = initialMerchant; category = initialCategory; account = initialAccount ?? store.ledger.activeAccounts.first(where: { $0.isCash != true })?.id; cash = store.ledger.activeAccounts.first(where: { $0.id == initialAccount })?.isCash == true; cashAccount = cash ? initialAccount : store.ledger.activeAccounts.first(where: { $0.isCash == true })?.id; deductFromBalance = cash || store.ledger.activeAccounts.first(where: { $0.id == account })?.bankAccountKey == nil }
+            .onAppear { guard !initialized else { return }; initialized = true; fixedExpense = initialFixedExpenseID; amount = initialAmount; merchant = initialMerchant; category = initialCategory; account = initialAccount ?? store.ledger.activeAccounts.first(where: { $0.isCash != true })?.id; cash = store.ledger.activeAccounts.first(where: { $0.id == initialAccount })?.isCash == true; cashAccount = cash ? initialAccount : store.ledger.activeAccounts.first(where: { $0.isCash == true })?.id; deductFromBalance = cash || store.ledger.activeAccounts.first(where: { $0.id == account })?.bankAccountKey == nil }
             .onChange(of: account) { _, id in deductFromBalance = store.ledger.activeAccounts.first(where: { $0.id == id })?.bankAccountKey == nil }
             .onChange(of: cash) { _, value in deductFromBalance = value || store.ledger.activeAccounts.first(where: { $0.id == account })?.bankAccountKey == nil }
             .onChange(of: photo) { _, item in Task { do { if let data = try await item?.loadTransferable(type: Data.self) { await handlePhoto(data) } } catch { readError = "Couldn’t load this photo. Choose another image." } } }
@@ -168,6 +146,7 @@ struct ExpenseForm: View {
                     else { Task { await handlePhoto(data) } }
                 } catch { readError = "Couldn’t open this bill. Try choosing it again." }
             }
+            .sheet(isPresented: $showAccounts) { NavigationStack { AccountForm().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showAccounts = false } } } } }
             .sheet(isPresented: $camera) { CameraPicker { data in Task { await handlePhoto(data) } } }
     }
     private func handlePhoto(_ data: Data) async {
@@ -202,7 +181,7 @@ struct ExpenseForm: View {
             } else { guard let account else { throw LedgerError.invalidExpense }; paidFrom = account }
             var reviewedReceipt = receipt; reviewedReceipt.merchant = merchant; reviewedReceipt.total = cents; reviewedReceipt.date = date
             if cash { reviewedReceipt.payment = "Cash" }
-            let expense = Expense(merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), amount: cents, categoryID: category, accountID: paidFrom, date: date, note: note, attachment: file, receipt: hasReceipt ? reviewedReceipt : nil)
+            let expense = Expense(merchant: merchant.trimmingCharacters(in: .whitespacesAndNewlines), amount: cents, categoryID: category, accountID: paidFrom, date: date, note: note, attachment: file, receipt: hasReceipt ? reviewedReceipt : nil, fixedExpenseID: fixedExpense)
             try ledger.record(expense, deductFromBalance: deductFromBalance)
             if let groceryID, let i = ledger.groceries.firstIndex(where: { $0.id == groceryID }) {
                 ledger.groceries[i].expenseID = expense.id; ledger.groceries[i].purchasedAt = date; ledger.groceries[i].checked = true; ledger.groceries[i].remind = false
@@ -215,36 +194,81 @@ struct ExpenseDetail: View {
     @Environment(LedgerStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     var expense: Expense
+    private var currentExpense: Expense { store.ledger.expenses.first { $0.id == expense.id } ?? expense }
+    @State private var editingPurchase = false
     @State private var category: UUID?
+    @State private var fixedExpense: UUID?
     @State private var preview: URL?
     @State private var deleting = false
     var body: some View {
         Form {
-            Section { LabeledContent("Merchant", value: expense.merchant); LabeledContent("Amount", value: Money.format(expense.amount)); LabeledContent("Date", value: expense.date.formatted(date: .abbreviated, time: .omitted)); LabeledContent("Account", value: store.ledger.accounts.first { $0.id == expense.accountID }?.name ?? "Unknown") }
-            Section("Category") { Picker("Envelope", selection: $category) { ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }; Button("Save Category") { if store.update({ ledger in if let i = ledger.expenses.firstIndex(where: { $0.id == expense.id }), let category { ledger.expenses[i].categoryID = category } }) { dismiss() } } }
+            Section {
+                LabeledContent("Merchant", value: currentExpense.merchant); LabeledContent("Amount", value: Money.format(currentExpense.amount)); LabeledContent("Date", value: currentExpense.date.formatted(date: .abbreviated, time: .omitted)); LabeledContent("Account", value: store.ledger.accounts.first { $0.id == currentExpense.accountID }?.name ?? "Unknown")
+                AssistantBadge(origin: currentExpense.assistantOrigin, edited: currentExpense.assistantLastEdit, compact: false)
+                if currentExpense.importedFromBank != true { Button("Edit Purchase", systemImage: "pencil") { editingPurchase = true }.accessibilityIdentifier("edit-manual-purchase") }
+            }
+            Section("Category") {
+                Picker("Envelope", selection: $category) { ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }
+                if !store.ledger.activeFixedExpenses.isEmpty || fixedExpense != nil { FixedExpensePicker(selection: $fixedExpense) }
+                Button("Save Category") {
+                    if store.update({ ledger in if let i = ledger.expenses.firstIndex(where: { $0.id == expense.id }), let category { ledger.expenses[i].categoryID = category; ledger.expenses[i].fixedExpenseID = fixedExpense } }) { dismiss() }
+                }
+                Text("Fixed-expense payments reduce that month's reserve and do not consume an envelope allocation. All purchases remain in Activity.").font(.caption)
+            }
             if let receipt = expense.receipt { ReceiptSummary(details: .constant(receipt), editable: false) }
-            if !expense.note.isEmpty { Section("Notes & extracted text") { Text(expense.note).textSelection(.enabled) } }
+            if !currentExpense.note.isEmpty { Section("Notes & extracted text") { Text(currentExpense.note).textSelection(.enabled) } }
             if let attachment = expense.attachment { Section("Bill") { Button("View Attached Bill") {
                 let url = store.attachmentURL(attachment)
                 if FileManager.default.fileExists(atPath: url.path) { preview = url } else { store.error = "This bill image isn’t on this device. Restore a complete backup that includes this attachment. Ledger-only exports do not include images." }
             } } }
             Section { Button("Delete Expense", role: .destructive) { deleting = true } } footer: { Text("Deleting reverses a balance deduction only if you haven’t replaced that account’s balance snapshot since recording it.") }
-        }.paperForm().navigationTitle("Expense").navigationBarTitleDisplayMode(.inline).onAppear { category = expense.categoryID }
+        }.paperForm().navigationTitle("Expense").navigationBarTitleDisplayMode(.inline).onAppear { category = expense.categoryID; fixedExpense = expense.fixedExpenseID }
+            .onChange(of: currentExpense) { _, updated in category = updated.categoryID; fixedExpense = updated.fixedExpenseID }
             .toolbar { Button("Done") { dismiss() } }.quickLookPreview($preview)
+            .navigationDestination(isPresented: $editingPurchase) { ManualExpenseEditor(original: currentExpense) }
             .confirmationDialog("Delete this expense? Any still-applicable cash deduction will be reversed.", isPresented: $deleting, titleVisibility: .visible) { Button("Delete Expense", role: .destructive) {
-                if store.update({ $0.removeExpense(id: expense.id) }) { dismiss() }
-            } }
+                if store.update({ $0.archiveExpense(expense.id) }) { dismiss() }
+            }.accessibilityIdentifier("confirm-archive-expense") }
     }
 }
-struct CameraPicker: UIViewControllerRepresentable {
+struct ManualExpenseEditor: View {
+    @Environment(LedgerStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    var original: Expense
+    @State private var merchant = ""
+    @State private var amount = ""
+    @State private var date = Date()
+    @State private var category: UUID?
+    @State private var note = ""
+    var body: some View {
+        Form {
+            Section {
+                TenderField("Merchant", text: $merchant).accessibilityIdentifier("edit-expense-merchant")
+                TenderField("Amount (USD)", text: $amount, numeric: true).accessibilityIdentifier("edit-expense-amount")
+                DatePicker("Date", selection: $date, in: ...Date(), displayedComponents: .date)
+                Picker("Envelope", selection: $category) { ForEach(store.ledger.categories) { Text($0.name).tag(Optional($0.id)) } }
+                TextField("Notes", text: $note, axis: .vertical).lineLimit(3...8)
+            } footer: { Text("Changing the amount adjusts the account balance only if this purchase was deducted from its current snapshot. Otherwise it corrects the history without charging it again. Receipts and source attribution are kept.") }
+        }.paperForm().navigationTitle("Edit Purchase").navigationBarTitleDisplayMode(.inline)
+            .onAppear { merchant = original.merchant; amount = Money.input(original.amount); date = original.date; category = original.categoryID; note = original.note }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") {
+                    guard let cents = Money.cents(amount), let category else { return }
+                    if store.update({ try $0.editManualExpense(original: original, merchant: merchant, amount: cents, date: date, categoryID: category, note: note) }) { dismiss() }
+                }.disabled(merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (Money.cents(amount) ?? 0) <= 0 || category == nil).accessibilityIdentifier("save-edited-purchase") }
+            }
+    }
+}
+struct CameraCapture: UIViewControllerRepresentable {
     @Environment(\.dismiss) private var dismiss
     var onCapture: (Data) -> Void
     func makeUIViewController(context: Context) -> UIImagePickerController { let vc = UIImagePickerController(); vc.sourceType = .camera; vc.delegate = context.coordinator; return vc }
     func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let parent: CameraPicker
-        init(parent: CameraPicker) { self.parent = parent }
+        let parent: CameraCapture
+        init(parent: CameraCapture) { self.parent = parent }
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) { if let image = info[.originalImage] as? UIImage, let data = image.jpegData(compressionQuality: 0.8) { parent.onCapture(data) }; parent.dismiss() }
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
@@ -284,7 +308,7 @@ struct ReceiptLineEditor: View {
         Form {
             TenderField("Item", text: $name)
             Stepper("Quantity: \(quantity)", value: $quantity, in: 1...999)
-            TenderField("Line total (USD)", text: $price).keyboardType(.decimalPad)
+            TenderField("Line total (USD)", text: $price, numeric: true)
         }.paperForm().navigationTitle("Receipt Item")
             .onAppear { name = line.name; price = Money.input(line.total); quantity = line.quantity }
             .toolbar {

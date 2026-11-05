@@ -15,7 +15,11 @@ extension Ledger {
         guard isDemo else { throw LedgerError.invalidBackup }
         var next = self
         next.isDemo = false
-        if !selection.keepBudgets { for i in next.categories.indices { next.categories[i].limit = 0 } }
+        if !selection.keepBudgets {
+            next.monthlyAllocation = 0
+            next.fixedExpenses = nil
+            for i in next.categories.indices { next.categories[i].limit = 0 }
+        } else { next.initializeMonthlyAllocationIfNeeded() }
         next.expenses.removeAll { !selection.expenses.contains($0.id) }
         next.recurring.removeAll { !selection.recurring.contains($0.id) }
         next.groceries.removeAll { !selection.groceries.contains($0.id) }

@@ -120,3 +120,74 @@ test('starting repair does not silently reuse a different pending new-bank sessi
  const result=await h.api('/v1/hosted-link','POST',{itemID:'saved'});
  assert.equal(result.status,409); assert.equal(h.calls.length,1);
 });
+
+test('free-team browser login returns to the app; native login requires configured Universal Links', async () => {
+  const h = await harness(provider);
+  assert.equal((await h.api('/v1/hosted-link', 'POST', { presentation: 'inApp' })).status, 503);
+  assert.equal(h.calls.length, 0);
+  const session = (await h.api('/v1/hosted-link', 'POST', { presentation: 'appReturn' })).body;
+  assert.equal(session.presentation, 'appReturn');
+  assert.equal(h.calls[0].body.hosted_link.is_mobile_app, false);
+  assert.equal(h.calls[0].body.hosted_link.completion_redirect_uri, `tender://bank-link-complete?session=${session.id}`);
+  assert.ok(!('redirect_uri' in h.calls[0].body));
+  await h.restart();
+  assert.equal((await h.api('/v1/hosted-link')).body.session.presentation, 'appReturn');
+  const native = await harness(provider);
+  native.config.team = 'EXAMPLETEAM'; native.config.redirect = 'https://tender.example/plaid/oauth';
+  assert.equal((await native.api('/v1/hosted-link', 'POST', { presentation: 'inApp' })).status, 200);
+  assert.equal(native.calls[0].body.hosted_link.is_mobile_app, true);
+  assert.equal(native.calls[0].body.redirect_uri, native.config.redirect);
+});
+
+test('automatic sync saves live balances and activity, with a durable retry throttle', async () => {
+  const h = await harness(async endpoint => endpoint === '/accounts/balance/get' ? {
+    accounts: [{ account_id: 'checking', type: 'depository', name: 'Checking', mask: '1234', balances: { available: 81.25, current: 90, iso_currency_code: 'USD' } }],
+  } : { added: [{ transaction_id: 'purchase', account_id: 'checking', amount: 8.75, date: '2026-10-24', name: 'Shop', iso_currency_code: 'USD' }], modified: [], removed: [], next_cursor: 'saved-cursor', has_more: false },
+  { environment: 'production', items: [{ id: 'item', token: 'private', name: 'Bank' }] });
+  const result = await h.api('/v1/sync', 'POST');
+  assert.equal(result.status, 200); assert.equal(result.body.accounts[0].availableCents, 8125);
+  assert.equal(result.body.accounts[0].itemID, 'item');
+  assert.equal(result.body.items[0].transactions[0].amountCents, 875);
+  assert.equal(result.body.accounts[0].retrievedAt, result.body.balancesCheckedAt);
+  assert.ok(result.body.activityCheckedAt); assert.deepEqual(result.body.errors, []);
+  assert.equal(h.read().items[0].transactionCursor, 'saved-cursor');
+  assert.equal(h.read().items[0].accounts[0].availableCents, 8125);
+  await h.restart();
+  assert.deepEqual((await h.api('/v1/sync', 'POST')).body, result.body);
+  assert.equal(h.calls.length, 2);
+});
+
+test('failed automatic updates preserve saved bank data and timestamps, including after restart', async () => {
+  const old = '2026-10-20T10:00:00Z';
+  const account = { id: 'checking', name: 'Checking', availableCents: 10000, currency: 'USD', retrievedAt: old };
+  const transaction = { id: 'production:item:one', accountKey: 'production:checking', amountCents: 1000 };
+  const h = await harness(async () => ({ error_code: 'ITEM_LOGIN_REQUIRED' }), {
+    environment: 'production', items: [{ id: 'item', token: 'private', name: 'Bank', accounts: [account], balancesCheckedAt: old, transactionsCheckedAt: old, transactions: [transaction] }],
+  });
+  const result = (await h.api('/v1/sync', 'POST')).body;
+  assert.deepEqual(result.accounts, [account]); assert.deepEqual(result.items[0].transactions, [transaction]);
+  assert.equal(result.balancesCheckedAt, old); assert.equal(result.activityCheckedAt, old);
+  assert.equal(result.connectionIssues[0].requiresReauthentication, true);
+  assert.equal(result.connectionIssues[0].itemID, 'item'); assert.ok(result.errors.length);
+  await h.restart();
+  assert.deepEqual((await h.api('/v1/sync', 'POST')).body, result); assert.equal(h.calls.length, 2);
+});
+
+test('partial sync failure updates balances without deleting previously saved activity', async () => {
+  const old = '2026-10-20T10:00:00Z';
+  const h = await harness(async endpoint => endpoint === '/transactions/sync' ? { error_code: 'INSTITUTION_DOWN' } : {
+    accounts: [{ account_id: 'checking', type: 'depository', name: 'Checking', balances: { available: 50, current: 50, iso_currency_code: 'USD' } }],
+  }, { environment: 'production', items: [{ id: 'item', token: 'private', transactionsCheckedAt: old, transactions: [{ id: 'saved' }] }] });
+  const result = (await h.api('/v1/sync', 'POST')).body;
+  assert.equal(result.accounts[0].availableCents, 5000);
+  assert.deepEqual(result.items[0].transactions, [{ id: 'saved' }]); assert.equal(result.activityCheckedAt, old);
+  assert.equal(result.connectionIssues[0].requiresReauthentication, false);
+});
+
+test('terminal login failure releases the pending session so a user can retry', async () => {
+  const h = await harness(async endpoint => endpoint === '/link/token/create' ? creation : { link_sessions: [{ on_exit: { error: { error_code: 'INSTITUTION_DOWN' } } }] });
+  const first = (await h.api('/v1/hosted-link', 'POST', {})).body;
+  assert.equal((await h.api('/v1/hosted-link/finish', 'POST', { sessionID: first.id })).body.status, 'failed');
+  assert.equal((await h.api('/v1/hosted-link')).body.session, null);
+  assert.notEqual((await h.api('/v1/hosted-link', 'POST', {})).body.id, first.id);
+});

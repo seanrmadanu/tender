@@ -1,3 +1,21 @@
+## AI connections — November 2, 2026
+
+Settings → AI Connections adds opt-in cloud sync and separate ChatGPT/Claude authorization. The 19 tools cover purchases, groceries/prices, recurring subscriptions, spending reports, profile/preferences, offline accounts, funded envelopes and Archive/restore. Changes save immediately. Linked bank names/balances are available; private bank identifiers, credentials and bank connection controls are excluded. Reset/delete-all remain user-operated. Source badges stay with items through ordinary editing, deletion to Archive and restoration. No special Undo is added. Receipt/profile-photo files remain on the device.
+
+The dedicated Cloudflare service is separate from the bank bridge. Real AI accounts are not automatically connected: enable sharing and approve each connection in Tender. See [setup, security, operations and verification limits](docs/ai-connections.md).
+
+## Startup — November 1, 2026
+
+Tender opens the saved account identity from Keychain and loads the local ledger, then completes a forced bank refresh before showing Home. The startup status says Loading balances, with no date/time or last-updated row. There is no timer that reveals an old balance while the launch refresh is pending. Offline, failed or unavailable bank access opens the saved ledger with its existing freshness warning; a storage failure preserves the original file and recovery behavior. Cash-only/offline and sample ledgers need no bank call. Failed refreshes may retry after 30 seconds instead of waiting the successful-refresh five-minute interval. Remote bank access still requires valid Firebase authorization.
+
+Settings shows the installed app version and build number. The current source is version 0.1.0, build 10. Xcode must finish installing and launching a new binary for design changes to appear; bank refresh only updates account data.
+
+Budgets now reserves fixed expenses before allowing monthly allocations, with a hard cap at the remaining account balances. Monthly payment review assigns imported purchases to envelopes, and Activity includes posted bank spending as well as manual entries. See [budget funding and spending rules](docs/budget-funding.md). Cash amounts use the bank card's number font. Email signup collects the profile name during account creation; Google uses provider metadata.
+
+## Accounts and signed-in Plaid — October 24, 2026
+
+The source now offers Plaid import, an explained manual-entry flow, and cash-on-hand entry on Accounts. Signed-in bank requests use verified Firebase identity and a separate vault per user. The live Worker was deployed on October 25, 2026. Rebuild/install the updated iPhone app, then test signed-in Plaid linking. See [verification and rollout status](docs/account-bank-verification.md).
+
 ## Latest local status — October 21, 2026
 
 Work in **Tender.xcodeproj**. V3 was imported with a recoverable pre-import
@@ -88,7 +106,7 @@ iCloud Drive exports are explicit snapshots, **not automatic multi-device sync**
 
 ## Verification
 
-Run the backend tests (Node 22 or newer; includes Cloudflare runtime tests):
+Run the backend tests with Node 22 or newer and `openssl` on your PATH. The authentication tests generate temporary signing credentials for their mocked Firebase responses.
 
 ```sh
 cd backend
@@ -120,6 +138,10 @@ Run UI tests using **Product → Test** in Xcode, or `xcodebuild test` with an a
 See [verification notes](docs/verification.md) and [bank connection options](docs/bank-connect.md). Physical-device camera capture, notification delivery, Back Tap, iCloud Drive save/restore, and Apple signing require device/account validation.
 
 ## iPhone installation
+
+In Budgets, add fixed expenses, then tap **Edit** and the pencil beside **Total monthly allocation**. Set an overall monthly budget within the balance remaining after unpaid fixed expenses, and assign amounts from it to envelopes. Adding or deleting envelopes does not change that total. Save commits the plan and Cancel discards the draft. Review monthly payments to assign existing purchases without another bank-balance deduction.
+
+Card designs are managed from an account's **Card design** page. The approved-artwork catalog currently has no issuer assets; see [card artwork](docs/card-artwork.md) for the matching rules and asset approval format. Profile photos can be added from the Home logo or Settings → Profile → Change Profile Photo, with logo-shaped cropping, zoom and rotation; see [profile photos](docs/profile-photo.md).
 
 Select an Apple development team in **Signing & Capabilities**, use a unique bundle ID if necessary, connect your iPhone, and run the Tender scheme. No iCloud entitlement is needed for the current Files export flow. Bank login credentials are entered only in Plaid's secure flow. Plaid API secrets stay on the backend. Complete [bank setup](docs/bank-connect.md) before connecting a bank.
 

@@ -1,0 +1,9 @@
+Use case: stylized-concept.
+Asset type: a finished raster background for a balance-summary card in a personal finance management app.
+Primary request: Create a refined contemporary card background inspired by the uploaded antique engraved banknote image.
+Input image 1 is a STYLE AND ORNAMENT REFERENCE, not an edit target. Borrow its intricate forest-green guilloche linework, engraved botanical scrolls, symmetry, and softly textured pale sage paper. Create an original design adapted for a small mobile interface.
+Composition: one flat straight-on landscape card artwork, approximately 2:1 aspect ratio, fills the entire image edge to edge. Fine double-rule frame inset slightly from all edges, elegant rounded frame corners. Concentrate detailed engraved scrollwork and delicate interlaced rosettes along the outer border and corners. Keep the middle 65 percent very pale, calm and almost empty, suitable for overlaying a large balance with supporting app labels. Subtle ornamental oval cartouche hints at left and right should merge gently into the border, leaving a broad continuous central readable area; do not create two large empty circles. Reduce line density from the reference so it stays elegant at mobile size.
+Palette: pale warm ivory and soft sage paper, deep muted forest-green ink. Matte fine paper grain, crisp delicate intaglio linework, restrained vintage luxury.
+Text: none. No letters, numbers, currency denominations, logos, portraits, payment-network marks, chip, interface controls, shadows, perspective, device mockup, or surrounding scene. Deliver the card background itself, not a screenshot or presentation.
+
+Generation mode: built-in image_gen.

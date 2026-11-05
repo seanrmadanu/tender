@@ -7,6 +7,7 @@ enum Ink {
     static let muted = Color(light: 0x59685B, dark: 0xAEC1B0)
     static let line = Color(light: 0xC9CDBC, dark: 0x4C6555)
     static let accent = Color(light: 0x38634A, dark: 0xA5C9A3)
+    static let destructive = Color(light: 0xC62828, dark: 0xC62828)
     static let warning = Color(light: 0x8E421F, dark: 0xF2BC91)
 }
 extension Color {
@@ -56,19 +57,16 @@ struct Engraving: View {
     }
 }
 struct PaperScreen<Content: View>: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var appeared = false
     @ViewBuilder var content: Content
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 25) { content }.padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 28)
                 .frame(maxWidth: 700).frame(maxWidth: .infinity)
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared || reduceMotion ? 0 : 10)
-        }.scrollDismissesKeyboard(.interactively)
+
+        }.scrollIndicators(.hidden).scrollDismissesKeyboard(.interactively)
             .background { Ink.paper.ignoresSafeArea(); Engraving().frame(height: 280).frame(maxHeight: .infinity, alignment: .top).ignoresSafeArea().opacity(0.6) }
             .foregroundStyle(Ink.green)
-            .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.35)) { appeared = true } }
+
     }
 }
 struct SectionHeading: View {
@@ -102,13 +100,14 @@ struct CategoryIcon: View {
 struct AmountRow: View {
     var label: String
     var amount: Int64
+    var warning = false
     var body: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline) { Text(label).foregroundStyle(Ink.muted); Spacer(minLength: 16); value.fixedSize() }
             VStack(alignment: .leading, spacing: 6) { Text(label).foregroundStyle(Ink.muted); value }
         }.font(.subheadline).accessibilityElement(children: .combine)
     }
-    private var value: some View { MoneyText(amount: amount).fontWeight(.semibold).foregroundStyle(amount < 0 ? Ink.warning : Ink.green) }
+    private var value: some View { MoneyText(amount: amount).fontWeight(.semibold).foregroundStyle(amount < 0 || warning ? Ink.warning : Ink.green) }
 }
 
 struct MoneyText: View {
@@ -139,7 +138,7 @@ struct BudgetMeter: View {
 
 extension View {
     func paperForm() -> some View {
-        self.scrollContentBackground(.hidden).background(Ink.paper).tint(Ink.green)
+        self.scrollIndicators(.hidden).scrollContentBackground(.hidden).background(Ink.paper).tint(Ink.green)
     }
 }
 struct EmptyNote: View {
@@ -154,13 +153,41 @@ struct TenderField: View {
     var title: String
     @Binding var text: String
     var axis: Axis
+    var numeric: Bool
+    @State private var selection: TextSelection?
     @FocusState private var focused: Bool
-    init(_ title: String, text: Binding<String>, axis: Axis = .horizontal) { self.title = title; self._text = text; self.axis = axis }
+    init(_ title: String, text: Binding<String>, axis: Axis = .horizontal, numeric: Bool = false) { self.title = title; self._text = text; self.axis = axis; self.numeric = numeric }
+    private var input: Binding<String> {
+        Binding(get: { numeric && !focused && Money.cents(text) == 0 ? "" : text }, set: { text = $0 })
+    }
     var body: some View {
-        TextField(title, text: $text, axis: axis).focused($focused)
+        TextField(title, text: input, selection: $selection, axis: axis).focused($focused)
+            .keyboardType(numeric ? .decimalPad : .default)
             .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
             .contentShape(Rectangle())
             .simultaneousGesture(TapGesture().onEnded { focused = true })
+            .onChange(of: focused) { _, active in
+                guard numeric, active else { return }
+                if Money.cents(text) == 0 { text = "" }
+                else if !text.isEmpty {
+                    let value = text
+                    // Let the native tap finish positioning its caret before
+                    // selecting the existing amount for replacement.
+                    DispatchQueue.main.async {
+                        guard focused, text == value else { return }
+                        selection = TextSelection(range: text.startIndex..<text.endIndex)
+                    }
+                }
+            }
+    }
+}
+struct FloatingActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Ink.paper)
+            .background(Ink.green, in: RoundedRectangle(cornerRadius: 14))
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .shadow(color: Ink.green.opacity(0.12), radius: 6, y: 3)
     }
 }
 struct BottomAdd: ViewModifier {
@@ -178,9 +205,7 @@ struct BottomAdd: ViewModifier {
                     Label(title, systemImage: "plus").font(.headline).padding(.horizontal, 18).frame(minHeight: 52)
                 }
             }
-                .foregroundStyle(Ink.paper).background(Ink.green, in: RoundedRectangle(cornerRadius: 14))
-                .buttonStyle(.plain)
-                .shadow(color: Ink.green.opacity(0.12), radius: 6, y: 3)
+                .buttonStyle(FloatingActionButtonStyle())
                 .padding(.horizontal, 18).padding(.vertical, 8)
                 .accessibilityIdentifier(identifier ?? title)
                 .accessibilityLabel(title)

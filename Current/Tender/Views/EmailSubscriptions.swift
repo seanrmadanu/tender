@@ -92,7 +92,7 @@ struct ReviewSubscriptionEmail: View {
                 }
                 if email.kind != "cancellation" {
                     TextField("Service name", text: $name)
-                    TextField("Renewal price in USD", text: $amount).keyboardType(.decimalPad)
+                    TenderField("Renewal price in USD", text: $amount, numeric: true)
                     DatePicker(email.kind == "trial" ? "Trial ends" : "Next renewal", selection: $date, displayedComponents: .date)
                     Toggle("I checked this date", isOn: $dateConfirmed)
                     Picker("Billing frequency", selection: $cycle) { ForEach(BillingCycle.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
